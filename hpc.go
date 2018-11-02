@@ -1,23 +1,25 @@
 package hpc
 
-import(
-	"syscall"
+import (
+	"bufio"
 	"bytes"
-	"strings"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
 type Job struct {
-	ScriptContents  string
-	NativeSpecs string
-	UID         int
-	GID         int
+	ScriptContents string
+	NativeSpecs    []string
+	UID            int
+	GID            int
 }
 
 func BuildScript(cmd, filenameSuffix string, myUid, myGid int) (err error, scriptPath string) {
@@ -45,52 +47,131 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int) (err error, scrip
 
 }
 
-//Detect batch system func should be added
+func DetectBatchSystem() (num int) {
+	osEnv := os.Environ()
+	counter := 0
+	for _, entry := range osEnv {
+		if strings.Contains(entry, "LSF_BINDIR") {
+			counter = counter + 1
+		}
+	}
 
-func (j *Job) Run() (err error) {
-	
-	err, Script := BuildScript(j.ScriptContents,"batch_script",j.UID,j.GID)
-	if err != nil{
-	  return err
+	return counter
+}
+
+func (j *Job) Run() (err error, out string) {
+	switch DetectBatchSystem() {
+	case 1:
+		return RunLSF(j)
+	default:
+		return errors.New("Batch System Detection Error"), ""
+	}
+	return nil, ""
+}
+
+func RunLSF(j *Job) (err error, out string) {
+	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID)
+	if err != nil {
+		return err, ""
 	}
 
 	file, err := ioutil.ReadFile(Script)
-	if err != nil{
-	  return err
+	if err != nil {
+		return err, ""
 	}
 
 	fileText := string(file)
 
 	var cmd *exec.Cmd
-	
-	if strings.Contains(fileText,"clone"){
-	  cmd = exec.Command("/bin/bash",Script)
-	}else {
-	  cmd = exec.Command("bsub","-o","/tmp/lsf.out","-e","lsf.err",Script)
+
+	if strings.Contains(fileText, "clone") {
+		cmd = exec.Command("/bin/bash", Script)
+	} else {
+		cmd = exec.Command("bsub", "-o", "/tmp/lsf.out", strings.Join(j.NativeSpecs, " "), Script)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
-        cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	fmt.Println("Setting UID to ",j.UID," ",j.GID)
-	cmd.Env = append(os.Environ(),
-		"MANPATH=/nfs/lsf/10.1/man:",
-		"LSF_SERVERDIR=/nfs/lsf/10.1/linux2.6-glibc2.3-x86_64/etc",
-		"LSF_LIBDIR=/nfs/lsf/10.1/linux2.6-glibc2.3-x86_64/lib",
-		"LD_LIBRARY_PATH=/nfs/lsf/10.1/linux2.6-glibc2.3-x86_64/lib",
-		"PATH=/nfs/lsf/10.1/linux2.6-glibc2.3-x86_64/etc:/nfs/lsf/10.1/linux2.6-glibc2.3-x86_64/bin:/sbin:/bin:/usr/sbin:/usr/bin",
-		"LSF_BINDIR=/nfs/lsf/10.1/linux2.6-glibc2.3-x86_64/bin",
-		"LSF_ENVDIR=/nfs/lsf/conf",
-		"_=/bin/env", 
-	)
-	
+	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
+	cmd.Env = append(os.Environ())
+
 	var stdBuffer bytes.Buffer
 	mw := io.MultiWriter(os.Stdout, &stdBuffer)
 	cmd.Stdout = mw
 	cmd.Stderr = mw
 	if err := cmd.Run(); err != nil {
- 	   return err
+		return err, ""
 	}
 
-	fmt.Println(stdBuffer.String())	
-	return nil
+	var commandOut string
+
+	if !strings.Contains(fileText, "clone") {
+		err, commandOut = GetOutput(Script, "/tmp/lsf.out")
+		if err != nil {
+			return err, ""
+		}
+	}
+
+	return nil, commandOut
+}
+
+func GetOutput(scriptName string, outputFile string) (err error, output string) {
+	retry := true
+
+	for retry {
+
+		file, err := os.Open(outputFile)
+		if err != nil {
+			return err, ""
+		}
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.Contains(line, scriptName) {
+				retry = false
+			}
+
+		}
+		file.Close()
+		file = nil
+	}
+
+	file, err := os.Open(outputFile)
+	if err != nil {
+		return err, ""
+	}
+
+	var lineArray []string
+	var subLineArray []string
+	var startingLine int = 0
+	var endingLine int
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lineArray = append(lineArray, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return err, ""
+	}
+
+	for i, line := range lineArray {
+		if strings.Contains(line, scriptName) {
+			startingLine = i
+			break
+		}
+	}
+
+	for i, line := range lineArray[startingLine:] {
+		if strings.Contains(line, "PS:") {
+			endingLine = startingLine + i
+			break
+		}
+	}
+
+	for _, line := range lineArray[startingLine+34 : endingLine-1] {
+		subLineArray = append(subLineArray, line)
+	}
+
+	file.Close()
+	file = nil
+	return nil, strings.Join(subLineArray, "\n")
 
 }
