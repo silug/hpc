@@ -56,13 +56,30 @@ func DetectBatchSystem() (num int) {
 		}
 	}
 
+	_, err := exec.LookPath("sbatch")
+	if err == nil {
+		counter = counter + 3
+	}
+
+	//if COBALT
+	//	counter = counter + 6
+
 	return counter
+	//1 = LSF
+	//3 = Slurm
+	//6 = Cobalt
+	//4 = LSF + Slurm
+	//10 = LSF + Slurm + Cobalt
+	//9 = Slurm + Cobalt
+
 }
 
 func (j *Job) Run() (err error, out string) {
 	switch DetectBatchSystem() {
 	case 1:
 		return RunLSF(j)
+	case 3:
+		return RunSlurm(j)
 	default:
 		return errors.New("Batch System Detection Error"), ""
 	}
@@ -87,7 +104,7 @@ func RunLSF(j *Job) (err error, out string) {
 	if strings.Contains(fileText, "clone") {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
-		cmd = exec.Command("bsub", "-o", "/tmp/lsf.out", strings.Join(j.NativeSpecs, " "), Script)
+		cmd = exec.Command("bsub", "-o", "/tmp/lsf.out","-e","/tmp/lsf.err", strings.Join(j.NativeSpecs, " "), Script)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
@@ -108,6 +125,52 @@ func RunLSF(j *Job) (err error, out string) {
 		if err != nil {
 			return err, ""
 		}
+	}
+
+	return nil, commandOut
+}
+
+func RunSlurm(j *Job) (err error, out string) {
+	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID)
+	if err != nil {
+		return err, ""
+	}
+
+	file, err := ioutil.ReadFile(Script)
+	if err != nil {
+		return err, ""
+	}
+
+	fileText := string(file)
+
+	var cmd *exec.Cmd
+
+	if strings.Contains(fileText, "clone") {
+		cmd = exec.Command("/bin/bash", Script)
+	} else {
+		cmd = exec.Command("sbatch", "-o", "/tmp/slurm.out", strings.Join(j.NativeSpecs, " "), Script)
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
+	cmd.Env = append(os.Environ())
+
+	var stdBuffer bytes.Buffer
+	mw := io.MultiWriter(os.Stdout, &stdBuffer)
+	cmd.Stdout = mw
+	cmd.Stderr = mw
+	if err := cmd.Run(); err != nil {
+		return err, ""
+	}
+
+	var commandOut string
+
+	if !strings.Contains(fileText, "clone") {
+		file, err := ioutil.ReadFile("/tmp/slurm.out")
+		if err != nil {
+			return err, ""
+		}
+
+		commandOut = string(file)
 	}
 
 	return nil, commandOut
