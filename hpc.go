@@ -16,18 +16,21 @@ import (
 )
 
 type Job struct {
-	ScriptContents string
-	NativeSpecs    []string
-	UID            int
-	GID            int
+	ScriptContents  string
+	NativeSpecs     []string
+	UID             int
+	GID             int
+	OutputScriptPth string
 }
 
-func BuildScript(cmd, filenameSuffix string, myUid, myGid int) (err error, scriptPath string) {
-
+func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err error, scriptPath string) {
 	uniqueID := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
 	time.Sleep(50 * time.Millisecond)
 
-	batchScriptFull := "/tmp/" + filenameSuffix + uniqueID + ".bash"
+	os.MkdirAll(fmt.Sprint(pth,"/scripts"), 0740)
+	os.Chown(fmt.Sprint(pth,"/scripts"), myUid, myGid)
+
+	batchScriptFull := pth + "/scripts/" + filenameSuffix + uniqueID + ".bash"
 	batchScript, scriptErr := os.Create(batchScriptFull)
 	if scriptErr != nil {
 		return fmt.Errorf("Unable to create Script file: %v", scriptErr), ""
@@ -87,7 +90,8 @@ func (j *Job) Run() (err error, out string) {
 }
 
 func RunLSF(j *Job) (err error, out string) {
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID)
+	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
+
 	if err != nil {
 		return err, ""
 	}
@@ -104,7 +108,9 @@ func RunLSF(j *Job) (err error, out string) {
 	if strings.Contains(fileText, "clone") {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
-		cmd = exec.Command("bsub", "-o", "/tmp/lsf.out","-e","/tmp/lsf.err", strings.Join(j.NativeSpecs, " "), Script)
+		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_out.log")
+		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_err.log")
+		cmd = exec.Command("bsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(j.NativeSpecs, " "), Script)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
@@ -121,7 +127,7 @@ func RunLSF(j *Job) (err error, out string) {
 	var commandOut string
 
 	if !strings.Contains(fileText, "clone") {
-		err, commandOut = GetOutput(Script, "/tmp/lsf.out")
+		err, commandOut = GetOutput(Script,fmt.Sprint(j.OutputScriptPth,"/lsf_out.log"))
 		if err != nil {
 			return err, ""
 		}
@@ -131,7 +137,7 @@ func RunLSF(j *Job) (err error, out string) {
 }
 
 func RunSlurm(j *Job) (err error, out string) {
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID)
+	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
 	if err != nil {
 		return err, ""
 	}
@@ -165,7 +171,7 @@ func RunSlurm(j *Job) (err error, out string) {
 	var commandOut string
 
 	if !strings.Contains(fileText, "clone") {
-		file, err := ioutil.ReadFile("/tmp/slurm.out")
+		file, err := ioutil.ReadFile(fmt.Sprintln(j.OutputScriptPth, "/lsf_out.log"))
 		if err != nil {
 			return err, ""
 		}
@@ -183,7 +189,7 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 
 		file, err := os.Open(outputFile)
 		if err != nil {
-			return err, ""
+		 continue
 		}
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
