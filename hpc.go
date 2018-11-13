@@ -23,6 +23,45 @@ type Job struct {
 	OutputScriptPth string
 }
 
+//This function exists to help the native spec system
+func Contains(illegalArgs []string, elementToTest string) bool {
+	for _, illegalArg := range illegalArgs {
+		if elementToTest == illegalArg {
+			return true
+		}
+		if strings.Contains(elementToTest, illegalArg) {
+			return true
+		}
+	}
+	return false
+}
+
+func RemoveIllegalParams(input []string, illegalParams []string) []string {
+        skip := false
+        var output []string
+        for i, parameter := range input {
+                if skip {
+                        skip = false
+                        continue
+                }
+
+                if Contains(illegalParams, parameter) {
+                        if !(i+1 > len(input)-1) {
+                                if strings.HasPrefix(input[i+1], "-") {
+                                        skip = false
+                                        continue
+                                }
+                        }
+
+                        skip = true
+                        continue
+                }
+                output = append(output, parameter)
+
+        }
+	return output
+}
+
 func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err error, scriptPath string) {
 	uniqueID := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
 	time.Sleep(50 * time.Millisecond)
@@ -110,7 +149,15 @@ func RunLSF(j *Job) (err error, out string) {
 	} else {
 		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_out.log")
 		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_err.log")
-		cmd = exec.Command("bsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(j.NativeSpecs, " "), Script)
+
+		var Specs []string
+		if len(j.NativeSpecs) != 0 {
+		//Defines an array of illegal arguments which will not be passed in as native specifications
+		illegalArguments := []string{"-e","-o","-eo"}
+		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+		}
+
+		cmd = exec.Command("bsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
