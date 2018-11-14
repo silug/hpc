@@ -226,15 +226,16 @@ func RunSlurm(j *Job) (err error, out string) {
 	cmd.Stdout = mw
 	cmd.Stderr = mw
 
+        os.Remove(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
+
 	if err := cmd.Run(); err != nil {
 		return err, ""		
 	}
 
-	os.Remove(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
-		
 	var commandOut string
 
 	if !strings.Contains(fileText, "clone") {
+	  fmt.Println(Script)
 	  err, commandOut = GetOutputSlurm(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
 	  if err != nil {return err, ""}		
 	}
@@ -243,27 +244,29 @@ func RunSlurm(j *Job) (err error, out string) {
 
 func GetOutputSlurm(outputFile string) (err error, output string){
 	retry := true
+	var file []byte
+
 	for retry {
-    	  if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		time.Sleep(10 * time.Millisecond)
-		continue   		 
-   	  } else {
-		time.Sleep(50 * time.Millisecond)
-		file, err := ioutil.ReadFile(outputFile)
-		if err != nil {
-		  return err, ""
-		}
+	  _, err := os.Open(outputFile)
+	  if err != nil{
+	    continue
+	  } else {
+                file, err = ioutil.ReadFile(outputFile)
+                if err != nil {
+                    return err, ""
+                }
+		fmt.Println(string(file))
 		os.Remove(outputFile)
-		return nil, string(file)
-    	  }
-   }
-	return nil, ""
+                return nil, string(file)
+	  }
+	}	
 }
 
 func GetOutput(scriptName string, outputFile string) (err error, output string) {
 	retry := true
 
 	for retry {
+
 		file, err := os.Open(outputFile)
 		if err != nil {
 		 continue
@@ -272,8 +275,9 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.Contains(line, scriptName) {
-			  retry = false
+				retry = false
 			}
+
 		}
 		file.Close()
 		file = nil
