@@ -36,38 +36,40 @@ func Contains(illegalArgs []string, elementToTest string) bool {
 	return false
 }
 
+//Removes specified arguments
 func RemoveIllegalParams(input []string, illegalParams []string) []string {
-        skip := false
-        var output []string
-        for i, parameter := range input {
-                if skip {
-                        skip = false
-                        continue
-                }
+	skip := false
+	var output []string
+	for i, parameter := range input {
+		if skip {
+			skip = false
+			continue
+		}
 
-                if Contains(illegalParams, parameter) {
-                        if !(i+1 > len(input)-1) {
-                                if strings.HasPrefix(input[i+1], "-") {
-                                        skip = false
-                                        continue
-                                }
-                        }
+		if Contains(illegalParams, parameter) {
+			if !(i+1 > len(input)-1) {
+				if strings.HasPrefix(input[i+1], "-") {
+					skip = false
+					continue
+				}
+			}
 
-                        skip = true
-                        continue
-                }
-                output = append(output, parameter)
+			skip = true
+			continue
+		}
+		output = append(output, parameter)
 
-        }
+	}
 	return output
 }
 
+//Creates a script returns the absolute path
 func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err error, scriptPath string) {
 	uniqueID := strconv.FormatInt(time.Now().UnixNano()/int64(time.Millisecond), 10)
 	time.Sleep(50 * time.Millisecond)
 
-	os.MkdirAll(fmt.Sprint(pth,"/scripts"), 0740)
-	os.Chown(fmt.Sprint(pth,"/scripts"), myUid, myGid)
+	os.MkdirAll(fmt.Sprint(pth, "/scripts"), 0740)
+	os.Chown(fmt.Sprint(pth, "/scripts"), myUid, myGid)
 
 	batchScriptFull := pth + "/scripts/" + filenameSuffix + uniqueID + ".bash"
 	batchScript, scriptErr := os.Create(batchScriptFull)
@@ -89,6 +91,7 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err 
 
 }
 
+//Finds which batch system is installed on the system returns a specific number
 func DetectBatchSystem() (num int) {
 	osEnv := os.Environ()
 	counter := 0
@@ -116,6 +119,7 @@ func DetectBatchSystem() (num int) {
 
 }
 
+//Initial func run. Gets batch system and calls the corresponding run
 func (j *Job) Run() (err error, out string) {
 	switch DetectBatchSystem() {
 	case 1:
@@ -129,150 +133,168 @@ func (j *Job) Run() (err error, out string) {
 }
 
 func RunLSF(j *Job) (err error, out string) {
+	//Create Script Check for Errors
 	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
-
 	if err != nil {
 		return err, ""
 	}
 
+	//Open script and get its contents
 	file, err := ioutil.ReadFile(Script)
 	if err != nil {
 		return err, ""
 	}
-
 	fileText := string(file)
 
+	//Create empty command var
 	var cmd *exec.Cmd
 
+	//Determin if script to be run should be done locally or through the batch system
 	if strings.Contains(fileText, "clone") {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
+		//Get output script paths
 		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_out.log")
 		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_err.log")
-
+		//Hancle Native Specs
 		var Specs []string
 		if len(j.NativeSpecs) != 0 {
-		//Defines an array of illegal arguments which will not be passed in as native specifications
-		illegalArguments := []string{"-e","-o","-eo"}
-		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+			//Defines an array of illegal arguments which will not be passed in as native specifications
+			illegalArguments := []string{"-e", "-o", "-eo"}
+			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 		}
-
+		//Assemle bash command
 		cmd = exec.Command("bsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
 	}
+	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
 	cmd.Env = append(os.Environ())
 
+	//Handle Std out and Std err
 	var stdBuffer bytes.Buffer
 	mw := io.MultiWriter(os.Stdout, &stdBuffer)
 	cmd.Stdout = mw
 	cmd.Stderr = mw
+	//Run the command, check for errors
 	if err := cmd.Run(); err != nil {
 		return err, ""
 	}
 
+	//Create empty output var
 	var commandOut string
 
+	//If command was run with Batch system get output
 	if !strings.Contains(fileText, "clone") {
-		err, commandOut = GetOutput(Script,fmt.Sprint(j.OutputScriptPth,"/lsf_out.log"))
+		err, commandOut = GetOutput(Script, fmt.Sprint(j.OutputScriptPth, "/lsf_out.log"))
 		if err != nil {
 			return err, ""
 		}
 	}
-
+	//Return output
 	return nil, commandOut
 }
 
 func RunSlurm(j *Job) (err error, out string) {
-
+	//Create Script Check for Errors
 	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
 	if err != nil {
 		return err, ""
 	}
-		
 
+	//Open script and get its contents
 	file, err := ioutil.ReadFile(Script)
 	if err != nil {
 		return err, ""
 	}
-
 	fileText := string(file)
 
+	//Create empty command var
 	var cmd *exec.Cmd
 
+	//Determin if script to be run should be done locally or through the batch system
 	if strings.Contains(fileText, "clone") {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
-	        outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/slurm_out.log")
-               
+		//Get output script paths
+		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/slurm_out.log")
+		//Hancle Native Specs
 		var Specs []string
-                if len(j.NativeSpecs) != 0 {
-                //Defines an array of illegal arguments which will not be passed in as native specifications
-                illegalArguments := []string{"-o"}
-                Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
-                }
-		if len(Specs) != 0{
-		  cmd = exec.Command("sbatch","-o",outputScriptPath, Script)
-		}else {
-		  cmd = exec.Command("sbatch","-o",outputScriptPath,strings.Join(Specs, " "), Script)
+		if len(j.NativeSpecs) != 0 {
+			//Defines an array of illegal arguments which will not be passed in as native specifications
+			illegalArguments := []string{"-o"}
+			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+		}
+		//If native specs were defined attach them to the end. Assemble bash command
+		if len(Specs) != 0 {
+			cmd = exec.Command("sbatch", "-o", outputScriptPath, Script)
+		} else {
+			cmd = exec.Command("sbatch", "-o", outputScriptPath, strings.Join(Specs, " "), Script)
 		}
 	}
+	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
 	cmd.Env = append(os.Environ())
 
+	//Handle Std out and Std err
 	var stdBuffer bytes.Buffer
 	mw := io.MultiWriter(os.Stdout, &stdBuffer)
 	cmd.Stdout = mw
 	cmd.Stderr = mw
-
+	//Run the command, check for errors
 	if err := cmd.Run(); err != nil {
-		return err, ""		
+		return err, ""
 	}
 
-	os.Remove(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
-		
+	//Create empty output var
 	var commandOut string
 
+	//If command was run with Batch system get output
 	if !strings.Contains(fileText, "clone") {
-	  err, commandOut = GetOutputSlurm(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
-	  if err != nil {return err, ""}		
+		err, commandOut = GetOutputSlurm(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
+		if err != nil {
+			return err, ""
+		}
 	}
+	//Return output
 	return nil, commandOut
 }
 
-func GetOutputSlurm(outputFile string) (err error, output string){
+//Gets contents of a slurm output file and returns it when availible
+func GetOutputSlurm(outputFile string) (err error, output string) {
 	retry := true
 	for retry {
-    	  if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		time.Sleep(10 * time.Millisecond)
-		continue   		 
-   	  } else {
-		time.Sleep(50 * time.Millisecond)
-		file, err := ioutil.ReadFile(outputFile)
-		if err != nil {
-		  return err, ""
+		if _, err := os.Stat(outputFile); os.IsNotExist(err) {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		} else {
+			time.Sleep(50 * time.Millisecond)
+			file, err := ioutil.ReadFile(outputFile)
+			if err != nil {
+				return err, ""
+			}
+			os.Remove(outputFile)
+			return nil, string(file)
 		}
-		os.Remove(outputFile)
-		return nil, string(file)
-    	  }
-   }
+	}
 	return nil, ""
 }
 
+//Parses lsf output file, finds the script that was just run, returns output if any when availible
 func GetOutput(scriptName string, outputFile string) (err error, output string) {
 	retry := true
 
 	for retry {
 		file, err := os.Open(outputFile)
 		if err != nil {
-		 continue
+			continue
 		}
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			line := scanner.Text()
 			if strings.Contains(line, scriptName) {
-			  retry = false
+				retry = false
 			}
 		}
 		file.Close()
