@@ -21,6 +21,7 @@ type Job struct {
 	UID             int
 	GID             int
 	OutputScriptPth string
+	BatchExecution	bool
 }
 
 //This function exists to help the native spec system
@@ -139,18 +140,11 @@ func RunLSF(j *Job) (err error, out string) {
 		return err, ""
 	}
 
-	//Open script and get its contents
-	file, err := ioutil.ReadFile(Script)
-	if err != nil {
-		return err, ""
-	}
-	fileText := string(file)
-
 	//Create empty command var
 	var cmd *exec.Cmd
 
 	//Determin if script to be run should be done locally or through the batch system
-	if strings.Contains(fileText, "clone") {
+	if j.BatchExecution == false {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
 		//Get output script paths
@@ -185,7 +179,7 @@ func RunLSF(j *Job) (err error, out string) {
 	var commandOut string
 
 	//If command was run with Batch system get output
-	if !strings.Contains(fileText, "clone") {
+	if j.BatchExecution == true {
 		err, commandOut = GetOutput(Script, fmt.Sprint(j.OutputScriptPth, "/lsf_out.log"))
 		if err != nil {
 			return err, ""
