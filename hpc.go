@@ -18,10 +18,11 @@ import (
 type Job struct {
 	ScriptContents  string
 	NativeSpecs     []string
+	Bank            string
 	UID             int
 	GID             int
 	OutputScriptPth string
-	BatchExecution	bool
+	BatchExecution  bool
 }
 
 //This function exists to help the native spec system
@@ -157,8 +158,14 @@ func RunLSF(j *Job) (err error, out string) {
 			illegalArguments := []string{"-e", "-o", "-eo"}
 			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 		}
+
 		//Assemle bash command
-		cmd = exec.Command("bsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+		if j.Bank == "" {
+		  cmd = exec.Command("bsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+		} else {
+		  cmd = exec.Command("bsub","-G", j.Bank , "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+		}
+		fmt.Println(cmd)
 	}
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
