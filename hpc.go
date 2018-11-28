@@ -227,10 +227,19 @@ func RunSlurm(j *Job) (err error, out string) {
 			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 		}
 		//If native specs were defined attach them to the end. Assemble bash command
-		if len(Specs) != 0 {
+		if j.Bank == ""{
+		  if len(Specs) != 0 {
 			cmd = exec.Command("sbatch", "-o", outputScriptPath, Script)
-		} else {
+		  } else {
 			cmd = exec.Command("sbatch", "-o", outputScriptPath, strings.Join(Specs, " "), Script)
+		  }
+		} else {
+                  if len(Specs) != 0 {
+                        cmd = exec.Command("sbatch","-A",j.Bank, "-o", outputScriptPath, Script)
+                  } else {
+                        cmd = exec.Command("sbatch","-A",j.Bank, "-o", outputScriptPath, strings.Join(Specs, " "), Script)
+                  }
+
 		}
 	}
 	//Assign setUID information and env. vars
