@@ -165,7 +165,6 @@ func RunLSF(j *Job) (err error, out string) {
 		} else {
 		  cmd = exec.Command("bsub","-G", j.Bank , "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
 		}
-		fmt.Println(cmd)
 	}
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
