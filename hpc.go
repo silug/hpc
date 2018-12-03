@@ -161,9 +161,9 @@ func RunLSF(j *Job) (err error, out string) {
 
 		//Assemle bash command
 		if j.Bank == "" {
-			cmd = exec.Command("bsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+			cmd = exec.Command("bsub", append(append([]string{"-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
 		} else {
-			cmd = exec.Command("bsub", "-G", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+			cmd = exec.Command("bsub", append(append([]string{"-G", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
 		}
 	}
 	//Assign setUID information and env. vars
@@ -228,13 +228,13 @@ func RunSlurm(j *Job) (err error, out string) {
 		//If native specs were defined attach them to the end. Assemble bash command
 		if j.Bank == "" {
 			if len(Specs) != 0 {
-				cmd = exec.Command("sbatch", "-o", outputScriptPath, strings.Join(Specs, " "), Script)
+				cmd = exec.Command("sbatch", append(append([]string{"-o", outputScriptPath}, Specs...), Script)...)
 			} else {
 				cmd = exec.Command("sbatch", "-o", outputScriptPath, Script)
 			}
 		} else {
 			if len(Specs) != 0 {
-				cmd = exec.Command("sbatch", "-A", j.Bank, "-o", outputScriptPath, strings.Join(Specs, " "), Script)
+				cmd = exec.Command("sbatch", append(append([]string{"-A", j.Bank, "-o", outputScriptPath}, Specs...), Script)...)
 			} else {
 				cmd = exec.Command("sbatch", "-A", j.Bank, "-o", outputScriptPath, Script)
 			}
