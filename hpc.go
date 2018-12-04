@@ -108,8 +108,10 @@ func DetectBatchSystem() (num int) {
 		counter = counter + 3
 	}
 
-	//if COBALT
-	//	counter = counter + 6
+	_, err = exec.LookPath("cqsub")
+	if err == nil {
+		counter = counter + 6
+	}
 
 	return counter
 	//1 = LSF
@@ -128,6 +130,8 @@ func (j *Job) Run() (err error, out string) {
 		return RunLSF(j)
 	case 3:
 		return RunSlurm(j)
+	case 6:
+		return RunCobalt(j)
 	default:
 		return errors.New("Batch System Detection Error"), ""
 	}
@@ -263,6 +267,87 @@ func RunSlurm(j *Job) (err error, out string) {
 	//If command was run with Batch system get output
 	if !strings.Contains(fileText, "clone") {
 		err, commandOut = GetOutputSlurm(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
+		if err != nil {
+			return err, ""
+		}
+	}
+	//Return output
+	return nil, commandOut
+}
+
+func RunCobalt(j *Job) (err error, out string) {
+	//Usage: cqsub [-d] [-v] -p <project> -q <queue> -C <working directory>
+    //         --dependencies <jobid1>:<jobid2> --preemptable
+    //         -e envvar1=value1:envvar2=value2 -k <kernel profile>
+    //         -K <kernel options> -O <outputprefix> -t time <in minutes>
+    //         -E <error file path> -o <output file path> -i <input file path>
+    //         -n <number of nodes> -h -c <processor count> -m <mode co/vn>
+    //         -u <umask> --debuglog <cobaltlog file path>
+    //         --attrs <attr1=val1:attr2=val2> --run-users <user1>:<user2>
+	//         --run-project <command> <args>
+
+	//Create Script Check for Errors
+	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
+	if err != nil {
+		return err, ""
+	}
+
+	//Create empty command var
+	var cmd *exec.Cmd
+
+	//Determine if script to be run should be done locally or through the batch system
+	if j.BatchExecution == false {
+		cmd = exec.Command("/bin/bash", Script)
+	} else {
+		//Get output script paths
+		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/cobalt_out.log")
+		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/cobalt_err.log")
+		//Handle Native Specs
+		var Specs []string
+		if len(j.NativeSpecs) != 0 {
+			//Defines an array of illegal arguments which will not be passed in as native specifications
+			illegalArguments := []string{"-e", "-o"}
+			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+		}
+		//If native specs were defined attach them to the end. Assemble bash command
+		if j.Bank == ""{
+		    if len(Specs) != 0 {
+				cmd = exec.Command("cqsub", "-o", outputScriptPath, "-e", errorScriptPath, Script)
+		    } else {
+				cmd = exec.Command("cqsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+		    }
+		} else {
+			// Note: -p <project> may not map to "Bank"
+			if len(Specs) != 0 {
+				cmd = exec.Command("cqsub", "-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, Script)
+			} else {
+				cmd = exec.Command("cqsub", "-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+			}
+
+		}
+	}
+
+	//Assign setUID information and env. vars
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
+	cmd.Env = append(os.Environ())
+
+	//Handle Std out and Std err
+	var stdBuffer bytes.Buffer
+	mw := io.MultiWriter(os.Stdout, &stdBuffer)
+	cmd.Stdout = mw
+	cmd.Stderr = mw
+	//Run the command, check for errors
+	if err := cmd.Run(); err != nil {
+		return err, ""
+	}
+
+	//Create empty output var
+	var commandOut string
+
+	//If command was run with Batch system get output
+	if j.BatchExecution == true {
+		err, commandOut = GetOutput(Script, fmt.Sprint(j.OutputScriptPth, "/cobalt_out.log"))
 		if err != nil {
 			return err, ""
 		}
