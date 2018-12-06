@@ -306,25 +306,25 @@ func RunCobalt(j *Job) (err error, out string) {
 		var Specs []string
 		if len(j.NativeSpecs) != 0 {
 			//Defines an array of illegal arguments which will not be passed in as native specifications
-			illegalArguments := []string{"-e", "-o"}
+			illegalArguments := []string{"-E", "-o"}
 			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 		}
 		//If native specs were defined attach them to the end. Assemble bash command
-		if j.Bank == ""{
-		    if len(Specs) != 0 {
-				cmd = exec.Command("cqsub", "-o", outputScriptPath, "-e", errorScriptPath, Script)
-		    } else {
-				cmd = exec.Command("cqsub", append(append([]string{"-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
-		    }
-		} else {
-			// Note: -p <project> may not map to "Bank"
-			if len(Specs) != 0 {
-				cmd = exec.Command("cqsub", "-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, Script)
-			} else {
-				cmd = exec.Command("cqsub", append(append([]string{"-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
-			}
+		batchCommand := "cqsub"
+		execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath}
 
+		if j.Bank != "" {
+			// Note: -p <project> may not map to "Bank"
+			execArgs = append(execArgs, "-p", j.Bank)
+		}      
+
+		if len(Specs) != 0 {
+			execArgs = append(execArgs, Specs...)
 		}
+
+		execArgs = append(execArgs, Script)
+
+		cmd = exec.Command(batchCommand, execArgs...)
 	}
 
 	//Assign setUID information and env. vars
