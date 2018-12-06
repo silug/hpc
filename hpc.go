@@ -314,14 +314,14 @@ func RunCobalt(j *Job) (err error, out string) {
 		    if len(Specs) != 0 {
 				cmd = exec.Command("cqsub", "-o", outputScriptPath, "-e", errorScriptPath, Script)
 		    } else {
-				cmd = exec.Command("cqsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+				cmd = exec.Command("cqsub", append(append([]string{"-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
 		    }
 		} else {
 			// Note: -p <project> may not map to "Bank"
 			if len(Specs) != 0 {
 				cmd = exec.Command("cqsub", "-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, Script)
 			} else {
-				cmd = exec.Command("cqsub", "-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
+				cmd = exec.Command("cqsub", append(append([]string{"-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
 			}
 
 		}
