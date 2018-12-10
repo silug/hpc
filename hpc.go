@@ -111,6 +111,7 @@ func DetectBatchSystem() (num int) {
 
 	_, err = exec.LookPath("cqsub")
 	if err == nil {
+
 		_, err = exec.LookPath("cqstat")
 		if err == nil {
 			counter = counter + 6
@@ -304,6 +305,7 @@ func RunCobalt(j *Job) (err error, out string) {
 	//Determine if script to be run should be done locally or through the batch system
 	if j.BatchExecution == false {
 		cmd = exec.Command("/bin/bash", Script)
+
 
 		//Assign setUID information and env. vars
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
