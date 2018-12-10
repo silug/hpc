@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"strconv"
@@ -110,7 +111,13 @@ func DetectBatchSystem() (num int) {
 
 	_, err = exec.LookPath("cqsub")
 	if err == nil {
-		counter = counter + 6
+
+		_, err = exec.LookPath("cqstat")
+		if err == nil {
+			counter = counter + 6
+		} else {
+			log.Print("Cobalt detected but can't monitor (found cqsub but no cqstat)")
+		}
 	}
 
 	return counter
@@ -298,62 +305,172 @@ func RunCobalt(j *Job) (err error, out string) {
 	//Determine if script to be run should be done locally or through the batch system
 	if j.BatchExecution == false {
 		cmd = exec.Command("/bin/bash", Script)
+
+
+		//Assign setUID information and env. vars
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
+		cmd.Env = append(os.Environ())
+
+		//Handle Std out and Std err
+		var stdBuffer bytes.Buffer
+		mw := io.MultiWriter(os.Stdout, &stdBuffer)
+		cmd.Stdout = mw
+		cmd.Stderr = mw
+		//Run the command, check for errors
+		if err := cmd.Run(); err != nil {
+			return err, ""
+		}
+
+		//Create empty output var
+		var commandOut string
+
+		//Return output
+		return nil, commandOut
 	} else {
 		//Get output script paths
-		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/cobalt_out.log")
-		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/cobalt_err.log")
+		var outputScriptFile, errorScriptFile, logScriptFile *os.File
+		var err error
+
+		outputScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_out-*.log")
+		if err != nil {
+			return err, ""
+		}
+
+		errorScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_err-*.log")
+		if err != nil {
+			return err, ""
+		}
+
+		logScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_debug-*.log")
+		if err != nil {
+			return err, ""
+		}
+
+		outputScriptPath := outputScriptFile.Name()
+		errorScriptPath := errorScriptFile.Name()
+		logScriptPath := logScriptFile.Name()
+
+		/*
+		// Remove the output files on return
+		defer os.Remove(outputScriptPath)
+		defer os.Remove(errorScriptPath)
+		defer os.Remove(logScriptPath)
+		*/
+
+		if err = os.Chown(outputScriptPath, j.UID, j.GID); err != nil {
+			log.Printf("os.Chown(%s, %d, %d) failed: %#v", outputScriptPath, j.UID, j.GID, err)
+			return err, ""
+		}
+
+		if err = os.Chown(errorScriptPath, j.UID, j.GID); err != nil {
+			log.Printf("os.Chown(%s, %d, %d) failed: %#v", errorScriptPath, j.UID, j.GID, err)
+			return err, ""
+		}
+
+		if err = os.Chown(logScriptPath, j.UID, j.GID); err != nil {
+			log.Printf("os.Chown(%s, %d, %d) failed: %#v", logScriptPath, j.UID, j.GID, err)
+			return err, ""
+		}
+
 		//Handle Native Specs
 		var Specs []string
 		if len(j.NativeSpecs) != 0 {
 			//Defines an array of illegal arguments which will not be passed in as native specifications
-			illegalArguments := []string{"-e", "-o"}
+			illegalArguments := []string{"-E", "-o", "--debuglog"}
 			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 		}
 		//If native specs were defined attach them to the end. Assemble bash command
-		if j.Bank == ""{
-		    if len(Specs) != 0 {
-				cmd = exec.Command("cqsub", "-o", outputScriptPath, "-e", errorScriptPath, Script)
-		    } else {
-				cmd = exec.Command("cqsub", "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
-		    }
-		} else {
+		batchCommand := "cqsub"
+		execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath, "--debuglog", logScriptPath}
+
+		if j.Bank != "" {
 			// Note: -p <project> may not map to "Bank"
-			if len(Specs) != 0 {
-				cmd = exec.Command("cqsub", "-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, Script)
-			} else {
-				cmd = exec.Command("cqsub", "-p", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath, strings.Join(Specs, " "), Script)
-			}
+			execArgs = append(execArgs, "-p", j.Bank)
+		}      
 
+		if len(Specs) != 0 {
+			execArgs = append(execArgs, Specs...)
 		}
-	}
 
-	//Assign setUID information and env. vars
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	cmd.Env = append(os.Environ())
+		execArgs = append(execArgs, Script)
 
-	//Handle Std out and Std err
-	var stdBuffer bytes.Buffer
-	mw := io.MultiWriter(os.Stdout, &stdBuffer)
-	cmd.Stdout = mw
-	cmd.Stderr = mw
-	//Run the command, check for errors
-	if err := cmd.Run(); err != nil {
-		return err, ""
-	}
+		cmd = exec.Command(batchCommand, execArgs...)
 
-	//Create empty output var
-	var commandOut string
+		//Assign setUID information and env. vars
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
+		cmd.Env = append(os.Environ())
 
-	//If command was run with Batch system get output
-	if j.BatchExecution == true {
-		err, commandOut = GetOutput(Script, fmt.Sprint(j.OutputScriptPth, "/cobalt_out.log"))
+		//Handle stdout and stderr
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		//Run the command, check for errors
+		err = cmd.Run()
+
+		errStr := string(stderr.Bytes())
+		if errStr != "" {
+			log.Print(errStr)
+		}
+
 		if err != nil {
 			return err, ""
 		}
+
+		jobid, err := strconv.Atoi(strings.TrimSpace(string(stdout.Bytes())))
+		if err != nil {
+			log.Printf("Failed to read job ID: %#v", err)
+			return err, ""
+		}
+
+		log.Printf("Waiting for job %d to complete.", jobid)
+
+		//Create empty output var
+		var commandOut string
+
+		//Build a command to check job status
+		var status *exec.Cmd
+
+		status = exec.Command("cqstat", fmt.Sprintf("%d", jobid))
+		//Assign setUID information and env. vars
+		status.SysProcAttr = &syscall.SysProcAttr{}
+		status.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
+		status.Env = append(os.Environ())
+
+		//Get output
+		err, commandOut = GetOutputCobalt(status, outputScriptPath, errorScriptPath, logScriptPath)
+		if err != nil {
+			return err, ""
+		}
+
+		//Return output
+		return nil, commandOut
 	}
-	//Return output
-	return nil, commandOut
+}
+
+//Gets contents of a cobalt output file and returns it when available
+func GetOutputCobalt(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
+	sleepTime := 10 * time.Second
+
+	cmd := *statusCmd
+	ret := cmd.Run()
+
+	//Loop until cqstat returns non-zero
+	for ret == nil {
+		time.Sleep(sleepTime)
+
+		cmd = *statusCmd
+		ret = cmd.Run()
+	}
+
+	file, err := ioutil.ReadFile(logFile)
+	if err != nil {
+		return err, ""
+	}
+
+	//Return the debug log contents
+	return nil, string(file)
 }
 
 //Gets contents of a slurm output file and returns it when availible
