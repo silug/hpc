@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"github.com/fsnotify/fsnotify"
 )
 
 type Job struct {
@@ -466,6 +467,61 @@ func RunCobalt(j *Job) (err error, out string) {
 func GetOutputCobalt(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
 	sleepTime := 10 * time.Second
 
+    done := make(chan bool)
+    go func() {
+        // tail -f logFile
+        watcher, werr := fsnotify.NewWatcher()
+        if werr != nil {
+            log.Fatal(werr)
+        }
+        defer watcher.Close()
+
+        for {
+            if _, err := os.Stat(logFile); os.IsNotExist(err) {
+                time.Sleep(10 * time.Millisecond)
+                log.Print("Waiting...")
+                continue
+            }
+            break
+        }
+        log.Printf("Found file %s", logFile)
+
+        werr = watcher.Add(logFile)
+        if werr != nil {
+            log.Fatal(werr)
+        }
+
+        file, ferr := os.Open(logFile)
+        if ferr != nil {
+            log.Fatal(ferr)
+        }
+        defer file.Close()
+
+        for {
+            scanner := bufio.NewScanner(file)
+            for scanner.Scan() {
+                fmt.Println(scanner.Text())
+            }
+            file.Seek(0, os.SEEK_CUR)
+
+            select {
+                case _, ok := <-watcher.Events:
+                    if !ok {
+                        return
+                    }
+
+                case err, ok := <-watcher.Errors:
+                    if !ok {
+                        return
+                    }
+                    log.Printf("Error: %#v", err)
+
+                case <-done:
+                    return
+            }
+        }
+    }()
+
 	cmd := *statusCmd
 	ret := cmd.Run()
 
@@ -476,14 +532,32 @@ func GetOutputCobalt(statusCmd *exec.Cmd, outputFile string, errorFile string, l
 		cmd = *statusCmd
 		ret = cmd.Run()
 	}
+    close(done)
 
 	file, err := ioutil.ReadFile(logFile)
 	if err != nil {
 		return err, ""
 	}
+    buf := file
+
+    buf = append(buf, []byte("\nJob stdout:\n")...)
+
+    file, err = ioutil.ReadFile(outputFile)
+    if err != nil {
+        return err, ""
+    }
+    buf = append(buf, file...)
+
+    buf = append(buf, []byte("\nJob stderr:\n")...)
+
+    file, err = ioutil.ReadFile(errorFile)
+    if err != nil {
+        return err, ""
+    }
+    buf = append(buf, file...)
 
 	//Return the debug log contents
-	return nil, string(file)
+    return nil, string(buf)
 }
 
 //Gets contents of a slurm output file and returns it when availible
