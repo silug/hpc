@@ -162,6 +162,8 @@ func RunLSF(j *Job) (err error, out string) {
 		//Get output script paths
 		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_out.log")
 		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_err.log")
+		os.Remove(outputScriptPath)
+		os.Remove(errorScriptPath)
 		//Hancle Native Specs
 		var Specs []string
 		if len(j.NativeSpecs) != 0 {
@@ -284,13 +286,13 @@ func RunSlurm(j *Job) (err error, out string) {
 
 func RunCobalt(j *Job) (err error, out string) {
 	//Usage: cqsub [-d] [-v] -p <project> -q <queue> -C <working directory>
-    //         --dependencies <jobid1>:<jobid2> --preemptable
-    //         -e envvar1=value1:envvar2=value2 -k <kernel profile>
-    //         -K <kernel options> -O <outputprefix> -t time <in minutes>
-    //         -E <error file path> -o <output file path> -i <input file path>
-    //         -n <number of nodes> -h -c <processor count> -m <mode co/vn>
-    //         -u <umask> --debuglog <cobaltlog file path>
-    //         --attrs <attr1=val1:attr2=val2> --run-users <user1>:<user2>
+	//         --dependencies <jobid1>:<jobid2> --preemptable
+	//         -e envvar1=value1:envvar2=value2 -k <kernel profile>
+	//         -K <kernel options> -O <outputprefix> -t time <in minutes>
+	//         -E <error file path> -o <output file path> -i <input file path>
+	//         -n <number of nodes> -h -c <processor count> -m <mode co/vn>
+	//         -u <umask> --debuglog <cobaltlog file path>
+	//         --attrs <attr1=val1:attr2=val2> --run-users <user1>:<user2>
 	//         --run-project <command> <args>
 
 	//Create Script Check for Errors
@@ -305,7 +307,6 @@ func RunCobalt(j *Job) (err error, out string) {
 	//Determine if script to be run should be done locally or through the batch system
 	if j.BatchExecution == false {
 		cmd = exec.Command("/bin/bash", Script)
-
 
 		//Assign setUID information and env. vars
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -352,10 +353,10 @@ func RunCobalt(j *Job) (err error, out string) {
 		logScriptPath := logScriptFile.Name()
 
 		/*
-		// Remove the output files on return
-		defer os.Remove(outputScriptPath)
-		defer os.Remove(errorScriptPath)
-		defer os.Remove(logScriptPath)
+			// Remove the output files on return
+			defer os.Remove(outputScriptPath)
+			defer os.Remove(errorScriptPath)
+			defer os.Remove(logScriptPath)
 		*/
 
 		if err = os.Chown(outputScriptPath, j.UID, j.GID); err != nil {
@@ -387,7 +388,7 @@ func RunCobalt(j *Job) (err error, out string) {
 		if j.Bank != "" {
 			// Note: -p <project> may not map to "Bank"
 			execArgs = append(execArgs, "-p", j.Bank)
-		}      
+		}
 
 		if len(Specs) != 0 {
 			execArgs = append(execArgs, Specs...)
@@ -496,21 +497,26 @@ func GetOutputSlurm(outputFile string) (err error, output string) {
 //Parses lsf output file, finds the script that was just run, returns output if any when availible
 func GetOutput(scriptName string, outputFile string) (err error, output string) {
 	retry := true
+	var lineArray []string
 
 	for retry {
+
 		file, err := os.Open(outputFile)
 		if err != nil {
 			continue
 		}
+
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.Contains(line, scriptName) {
-				retry = false
-			}
+			lineArray = append(lineArray, scanner.Text())
 		}
-		file.Close()
-		file = nil
+		if err := scanner.Err(); err != nil {
+			return err, ""
+		}
+
+		if len(lineArray) != 0 {
+			retry = false
+		}
 	}
 
 	file, err := os.Open(outputFile)
@@ -518,10 +524,9 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 		return err, ""
 	}
 
-	var lineArray []string
 	var subLineArray []string
 	var startingLine int = 0
-	var endingLine int
+	var endingLine int = 0
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -532,7 +537,7 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 	}
 
 	for i, line := range lineArray {
-		if strings.Contains(line, scriptName) {
+		if strings.Contains(line, "The output (if any) follows:") {
 			startingLine = i
 			break
 		}
@@ -545,12 +550,13 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 		}
 	}
 
-	for _, line := range lineArray[startingLine+34 : endingLine-1] {
+	for _, line := range lineArray[startingLine+1 : endingLine-1] {
 		subLineArray = append(subLineArray, line)
 	}
 
 	file.Close()
 	file = nil
+	os.Remove(outputFile)
 	return nil, strings.Join(subLineArray, "\n")
 
 }
