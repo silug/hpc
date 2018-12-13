@@ -425,7 +425,11 @@ func RunCobalt(j *Job) (err error, out string) {
 
 		errStr := string(stderr.Bytes())
 		if errStr != "" {
+                        errMsg := fmt.Sprintf("Command '%s' failed.", strings.Join(cmd.Args, " "))
+                        j.PrintToParent(errMsg)
 			j.PrintToParent(errStr)
+                        log.Printf(errMsg)
+                        log.Print(errStr)
 		}
 
 		if err != nil {
