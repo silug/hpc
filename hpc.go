@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+type PrintBack func(string)
+
 type Job struct {
 	ScriptContents  string
 	NativeSpecs     []string
@@ -24,6 +26,7 @@ type Job struct {
 	GID             int
 	OutputScriptPth string
 	BatchExecution  bool
+	PrintFunc       PrintBack
 }
 
 //This function exists to help the native spec system
@@ -132,6 +135,7 @@ func DetectBatchSystem() (num int) {
 
 //Initial func run. Gets batch system and calls the corresponding run
 func (j *Job) Run() (err error, out string) {
+	j.PrintFunc("This is a test......")
 	switch DetectBatchSystem() {
 	case 1:
 		return RunLSF(j)
