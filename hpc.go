@@ -16,8 +16,6 @@ import (
 	"time"
 )
 
-type PrintBack func(string)
-
 type Job struct {
 	ScriptContents  string
 	NativeSpecs     []string
@@ -26,7 +24,7 @@ type Job struct {
 	GID             int
 	OutputScriptPth string
 	BatchExecution  bool
-	PrintFunc       PrintBack
+	PrintToParent       func(string)
 }
 
 //This function exists to help the native spec system
@@ -135,7 +133,6 @@ func DetectBatchSystem() (num int) {
 
 //Initial func run. Gets batch system and calls the corresponding run
 func (j *Job) Run() (err error, out string) {
-	j.PrintFunc("This is a test......")
 	switch DetectBatchSystem() {
 	case 1:
 		return RunLSF(j)
@@ -189,14 +186,20 @@ func RunLSF(j *Job) (err error, out string) {
 	cmd.Env = append(os.Environ())
 
 	//Handle Std out and Std err
-	var stdBuffer bytes.Buffer
-	mw := io.MultiWriter(os.Stdout, &stdBuffer)
-	cmd.Stdout = mw
-	cmd.Stderr = mw
+	//var stdBuffer bytes.Buffer
+	//mw := io.MultiWriter(os.Stdout, &stdBuffer)
+	//cmd.Stdout = mw
+	//cmd.Stderr = mw
 	//Run the command, check for errors
-	if err := cmd.Run(); err != nil {
-		return err, ""
-	}
+	//if err := cmd.Run(); err != nil {
+	//	return err, ""
+	//}
+
+        cmdResults, err := cmd.Output()
+        if err!= nil{
+          return err, ""
+        }
+        j.PrintToParent(string(cmdResults))
 
 	//Create empty output var
 	var commandOut string
@@ -265,14 +268,18 @@ func RunSlurm(j *Job) (err error, out string) {
 	cmd.Env = append(os.Environ())
 
 	//Handle Std out and Std err
-	var stdBuffer bytes.Buffer
-	mw := io.MultiWriter(os.Stdout, &stdBuffer)
-	cmd.Stdout = mw
-	cmd.Stderr = mw
+	//var stdBuffer bytes.Buffer
+	//mw := io.MultiWriter(os.Stdout, &stdBuffer)
+	//cmd.Stdout = mw
+	//cmd.Stderr = mw
 	//Run the command, check for errors
-	if err := cmd.Run(); err != nil {
-		return err, ""
+	//j.Print := cmd.Output(); 
+
+	cmdResults, err := cmd.Output()
+	if err!= nil{
+          return err, ""
 	}
+        j.PrintToParent(string(cmdResults))
 
 	//Create empty output var
 	var commandOut string
@@ -416,7 +423,7 @@ func RunCobalt(j *Job) (err error, out string) {
 
 		errStr := string(stderr.Bytes())
 		if errStr != "" {
-			log.Print(errStr)
+			j.PrintToParent(errStr)
 		}
 
 		if err != nil {
@@ -425,11 +432,11 @@ func RunCobalt(j *Job) (err error, out string) {
 
 		jobid, err := strconv.Atoi(strings.TrimSpace(string(stdout.Bytes())))
 		if err != nil {
-			log.Printf("Failed to read job ID: %#v", err)
+			j.PrintToParent(fmt.Sprintf("Failed to read job ID: %#v", err))
 			return err, ""
 		}
 
-		log.Printf("Waiting for job %d to complete.", jobid)
+		j.PrintToParent(fmt.Sprintf("Waiting for job %d to complete.", jobid))
 
 		//Create empty output var
 		var commandOut string
