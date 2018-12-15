@@ -1,10 +1,8 @@
 package hpc
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
 	"io"
 	"io/ioutil"
 	"log"
@@ -177,7 +175,7 @@ func RunCobalt(j *Job) (err error, out string) {
 		status.Env = append(os.Environ())
 
 		//Get output
-		err, commandOut = GetOutputCobalt(status, outputScriptPath, errorScriptPath, logScriptPath)
+		err, commandOut = j.GetOutputCobalt(status, outputScriptPath, errorScriptPath, logScriptPath)
 		if err != nil {
 			return err, ""
 		}
@@ -188,63 +186,11 @@ func RunCobalt(j *Job) (err error, out string) {
 }
 
 //Gets contents of a cobalt output file and returns it when available
-func GetOutputCobalt(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
+func (j *Job) GetOutputCobalt(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
 	sleepTime := 10 * time.Second
 
 	done := make(chan bool)
-	go func() {
-		// tail -f logFile
-		watcher, werr := fsnotify.NewWatcher()
-		if werr != nil {
-			log.Fatal(werr)
-		}
-		defer watcher.Close()
-
-		for {
-			if _, err := os.Stat(logFile); os.IsNotExist(err) {
-				time.Sleep(10 * time.Millisecond)
-				log.Print("Waiting...")
-				continue
-			}
-			break
-		}
-		log.Printf("Found file %s", logFile)
-
-		werr = watcher.Add(logFile)
-		if werr != nil {
-			log.Fatal(werr)
-		}
-
-		file, ferr := os.Open(logFile)
-		if ferr != nil {
-			log.Fatal(ferr)
-		}
-		defer file.Close()
-
-		for {
-			scanner := bufio.NewScanner(file)
-			for scanner.Scan() {
-				fmt.Println(scanner.Text())
-			}
-			file.Seek(0, os.SEEK_CUR)
-
-			select {
-			case _, ok := <-watcher.Events:
-				if !ok {
-					return
-				}
-
-			case err, ok := <-watcher.Errors:
-				if !ok {
-					return
-				}
-				log.Printf("Error: %#v", err)
-
-			case <-done:
-				return
-			}
-		}
-	}()
+	go j.tailFile(logFile, done)
 
 	cmd := *statusCmd
 	ret := cmd.Run()
