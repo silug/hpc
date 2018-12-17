@@ -24,7 +24,7 @@ type Job struct {
 	GID             int
 	OutputScriptPth string
 	BatchExecution  bool
-	PrintToParent       func(string)
+	PrintToParent   func(string)
 }
 
 //This function exists to help the native spec system
@@ -195,11 +195,11 @@ func RunLSF(j *Job) (err error, out string) {
 	//	return err, ""
 	//}
 
-        cmdResults, err := cmd.Output()
-        if err!= nil{
-          return err, ""
-        }
-        j.PrintToParent(string(cmdResults))
+	cmdResults, err := cmd.Output()
+	if err != nil {
+		return err, ""
+	}
+	j.PrintToParent(string(cmdResults))
 
 	//Create empty output var
 	var commandOut string
@@ -233,7 +233,7 @@ func RunSlurm(j *Job) (err error, out string) {
 	var cmd *exec.Cmd
 
 	//Determin if script to be run should be done locally or through the batch system
-	if strings.Contains(fileText, "clone") {
+	if j.BatchExecution == false {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
 		//Get output script paths
@@ -273,13 +273,14 @@ func RunSlurm(j *Job) (err error, out string) {
 	//cmd.Stdout = mw
 	//cmd.Stderr = mw
 	//Run the command, check for errors
-	//j.Print := cmd.Output(); 
+	//j.Print := cmd.Output();
+	fmt.Println("Got this far")
 
 	cmdResults, err := cmd.Output()
-	if err!= nil{
-          return err, ""
+	if err != nil {
+		return err, ""
 	}
-        j.PrintToParent(string(cmdResults))
+	j.PrintToParent(string(cmdResults))
 
 	//Create empty output var
 	var commandOut string
