@@ -60,49 +60,26 @@ func RunCobalt(j *Job) (err error, out string) {
 		return nil, commandOut
 	} else {
 		//Get output script paths
-		var outputScriptFile, errorScriptFile, logScriptFile *os.File
+		var outputScriptPath, errorScriptPath, logScriptPath string
 		var err error
 
-		outputScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_out-*.log")
+		outputScriptPath, err = j.mkTempFile("cobalt_out-*.log")
 		if err != nil {
 			return err, ""
 		}
+		defer os.Remove(outputScriptPath)
 
-		errorScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_err-*.log")
+		errorScriptPath, err = j.mkTempFile("cobalt_err-*.log")
 		if err != nil {
 			return err, ""
 		}
+		defer os.Remove(errorScriptPath)
 
-		logScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_debug-*.log")
+		logScriptPath, err = j.mkTempFile("cobalt_debug-*.log")
 		if err != nil {
 			return err, ""
 		}
-
-		outputScriptPath := outputScriptFile.Name()
-		errorScriptPath := errorScriptFile.Name()
-		logScriptPath := logScriptFile.Name()
-
-		/*
-		   // Remove the output files on return
-		   defer os.Remove(outputScriptPath)
-		   defer os.Remove(errorScriptPath)
-		   defer os.Remove(logScriptPath)
-		*/
-
-		if err = os.Chown(outputScriptPath, j.UID, j.GID); err != nil {
-			log.Printf("os.Chown(%s, %d, %d) failed: %#v", outputScriptPath, j.UID, j.GID, err)
-			return err, ""
-		}
-
-		if err = os.Chown(errorScriptPath, j.UID, j.GID); err != nil {
-			log.Printf("os.Chown(%s, %d, %d) failed: %#v", errorScriptPath, j.UID, j.GID, err)
-			return err, ""
-		}
-
-		if err = os.Chown(logScriptPath, j.UID, j.GID); err != nil {
-			log.Printf("os.Chown(%s, %d, %d) failed: %#v", logScriptPath, j.UID, j.GID, err)
-			return err, ""
-		}
+		defer os.Remove(logScriptPath)
 
 		//Handle Native Specs
 		var Specs []string
@@ -204,15 +181,9 @@ func (j *Job) GetOutputCobalt(statusCmd *exec.Cmd, outputFile string, errorFile 
 	}
 	close(done)
 
-	file, err := ioutil.ReadFile(logFile)
-	if err != nil {
-		return err, ""
-	}
-	buf := file
+	buf := []byte("\nJob stdout:\n")
 
-	buf = append(buf, []byte("\nJob stdout:\n")...)
-
-	file, err = ioutil.ReadFile(outputFile)
+	file, err := ioutil.ReadFile(outputFile)
 	if err != nil {
 		return err, ""
 	}

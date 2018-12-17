@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -193,4 +194,20 @@ func (j *Job) tailFile(fileName string, done chan bool) {
                         return
                 }
         }
+}
+
+func (j *Job) mkTempFile(template string) (out string, err error) {
+	file, err := ioutil.TempFile(j.OutputScriptPth, template)
+	if err != nil {
+		return "", err
+	}
+
+	fileName := file.Name()
+
+	if err = os.Chown(fileName, j.UID, j.GID); err != nil {
+		log.Printf("os.Chown(%s, %d, %d) failed: %#v", fileName, j.UID, j.GID, err)
+		return "", err
+	}
+
+	return fileName, nil
 }
