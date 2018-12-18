@@ -2,7 +2,6 @@ package hpc
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -19,16 +18,28 @@ func RunLSF(j *Job) (err error, out string) {
 	//Create empty command var
 	var cmd *exec.Cmd
 
+	//Get output script paths
+	var outputScriptPath, errorScriptPath string
+
 	//Determin if script to be run should be done locally or through the batch system
 	if j.BatchExecution == false {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
-		//Get output script paths
-		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_out.log")
-		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_err.log")
-		os.Remove(outputScriptPath)
-		os.Remove(errorScriptPath)
-		//Hancle Native Specs
+		var err error
+
+		outputScriptPath, err = j.mkTempFile("lsf_out-*.log")
+		if err != nil {
+			return err, ""
+		}
+		defer os.Remove(outputScriptPath)
+
+		errorScriptPath, err = j.mkTempFile("lsf_err-*.log")
+		if err != nil {
+			return err, ""
+		}
+		defer os.Remove(errorScriptPath)
+
+		//Handle Native Specs
 		var Specs []string
 		if len(j.NativeSpecs) != 0 {
 			//Defines an array of illegal arguments which will not be passed in as native specifications
@@ -36,12 +47,22 @@ func RunLSF(j *Job) (err error, out string) {
 			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 		}
 
-		//Assemle bash command
-		if j.Bank == "" {
-			cmd = exec.Command("bsub", append(append([]string{"-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
-		} else {
-			cmd = exec.Command("bsub", append(append([]string{"-G", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
+		//Assemble bash command
+		batchCommand := "bsub"
+		execArgs := []string{"-o", outputScriptPath, "-e", errorScriptPath}
+
+		if j.Bank != "" {
+			execArgs = append(execArgs, "-G", j.Bank)
 		}
+
+		if len(Specs) != 0 {
+			execArgs = append(execArgs, Specs...)
+		}
+
+		execArgs = append(execArgs, Script)
+
+		cmd = exec.Command(batchCommand, execArgs...)
+
 	}
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -68,8 +89,8 @@ func RunLSF(j *Job) (err error, out string) {
 	var commandOut string
 
 	//If command was run with Batch system get output
-	if j.BatchExecution == true {
-		err, commandOut = GetOutput(Script, fmt.Sprint(j.OutputScriptPth, "/lsf_out.log"))
+	if outputScriptPath != "" {
+		err, commandOut = GetOutput(Script, outputScriptPath)
 		if err != nil {
 			return err, ""
 		}
@@ -140,7 +161,6 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 
 	file.Close()
 	file = nil
-	os.Remove(outputFile)
 	return nil, strings.Join(subLineArray, "\n")
 
 }
