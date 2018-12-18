@@ -1,7 +1,6 @@
 package hpc
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -27,34 +26,45 @@ func RunSlurm(j *Job) (err error, out string) {
 	//Create empty command var
 	var cmd *exec.Cmd
 
+	//Get output script paths
+	var outputScriptPath string
+
 	//Determin if script to be run should be done locally or through the batch system
 	if j.BatchExecution == false {
 		cmd = exec.Command("/bin/bash", Script)
 	} else {
+		var err error
+
 		//Get output script paths
-		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/slurm_out.log")
-		//Hancle Native Specs
+		outputScriptPath, err = j.mkTempFile("slurm_out-*.log")
+		if err != nil {
+			return err, ""
+		}
+		defer os.Remove(outputScriptPath)
+
+		//Handle Native Specs
 		var Specs []string
 		if len(j.NativeSpecs) != 0 {
 			//Defines an array of illegal arguments which will not be passed in as native specifications
 			illegalArguments := []string{"-o"}
 			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 		}
-		//If native specs were defined attach them to the end. Assemble bash command
-		if j.Bank == "" {
-			if len(Specs) != 0 {
-				cmd = exec.Command("sbatch", append(append([]string{"-o", outputScriptPath}, Specs...), Script)...)
-			} else {
-				cmd = exec.Command("sbatch", "-o", outputScriptPath, Script)
-			}
-		} else {
-			if len(Specs) != 0 {
-				cmd = exec.Command("sbatch", append(append([]string{"-A", j.Bank, "-o", outputScriptPath}, Specs...), Script)...)
-			} else {
-				cmd = exec.Command("sbatch", "-A", j.Bank, "-o", outputScriptPath, Script)
-			}
 
+		//Assemble bash command
+		batchCommand := "sbatch"
+		execArgs := []string{"-o", outputScriptPath}
+
+		if j.Bank != "" {
+			execArgs = append(execArgs, "-A", j.Bank)
 		}
+
+		if len(Specs) != 0 {
+			execArgs = append(execArgs, Specs...)
+		}
+
+		execArgs = append(execArgs, Script)
+
+		cmd = exec.Command(batchCommand, execArgs...)
 	}
 
 	//Assign setUID information and env. vars
@@ -81,8 +91,8 @@ func RunSlurm(j *Job) (err error, out string) {
 	var commandOut string
 
 	//If command was run with Batch system get output
-	if !strings.Contains(fileText, "clone") {
-		err, commandOut = GetOutputSlurm(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
+	if outputScriptPath != "" {
+		err, commandOut = GetOutputSlurm(outputScriptPath)
 		if err != nil {
 			return err, ""
 		}
@@ -104,7 +114,6 @@ func GetOutputSlurm(outputFile string) (err error, output string) {
 			if err != nil {
 				return err, ""
 			}
-			os.Remove(outputFile)
 			return nil, string(file)
 		}
 	}
