@@ -1,10 +1,10 @@
 package hpc
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -15,13 +15,6 @@ func RunSlurm(j *Job) (err error, out string) {
 	if err != nil {
 		return err, ""
 	}
-
-	//Open script and get its contents
-	file, err := ioutil.ReadFile(Script)
-	if err != nil {
-		return err, ""
-	}
-	fileText := string(file)
 
 	//Create empty command var
 	var cmd *exec.Cmd
