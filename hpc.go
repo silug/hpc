@@ -2,17 +2,15 @@ package hpc
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
+	"github.com/fsnotify/fsnotify"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -146,429 +144,70 @@ func (j *Job) Run() (err error, out string) {
 	return nil, ""
 }
 
-func RunLSF(j *Job) (err error, out string) {
-	//Create Script Check for Errors
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
-	if err != nil {
-		return err, ""
-	}
+func (j *Job) tailFile(fileName string, done chan bool) {
+        watcher, werr := fsnotify.NewWatcher()
+        if werr != nil {
+                log.Fatal(werr)
+        }
+        defer watcher.Close()
 
-	//Create empty command var
-	var cmd *exec.Cmd
+        for {
+                if _, err := os.Stat(fileName); os.IsNotExist(err) {
+                        time.Sleep(10 * time.Millisecond)
+                        j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
+                        continue
+                }
+                break
+        }
 
-	//Determin if script to be run should be done locally or through the batch system
-	if j.BatchExecution == false {
-		cmd = exec.Command("/bin/bash", Script)
-	} else {
-		//Get output script paths
-		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_out.log")
-		errorScriptPath := fmt.Sprint(j.OutputScriptPth, "/lsf_err.log")
-		os.Remove(outputScriptPath)
-		os.Remove(errorScriptPath)
-		//Hancle Native Specs
-		var Specs []string
-		if len(j.NativeSpecs) != 0 {
-			//Defines an array of illegal arguments which will not be passed in as native specifications
-			illegalArguments := []string{"-e", "-o", "-eo"}
-			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
-		}
+        werr = watcher.Add(fileName)
+        if werr != nil {
+                log.Fatal(werr)
+        }
 
-		//Assemle bash command
-		if j.Bank == "" {
-			cmd = exec.Command("bsub", append(append([]string{"-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
-		} else {
-			cmd = exec.Command("bsub", append(append([]string{"-G", j.Bank, "-o", outputScriptPath, "-e", errorScriptPath}, Specs...), Script)...)
-		}
-	}
-	//Assign setUID information and env. vars
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	cmd.Env = append(os.Environ())
+        file, ferr := os.Open(fileName)
+        if ferr != nil {
+                log.Fatal(ferr)
+        }
+        defer file.Close()
 
-	//Handle Std out and Std err
-	//var stdBuffer bytes.Buffer
-	//mw := io.MultiWriter(os.Stdout, &stdBuffer)
-	//cmd.Stdout = mw
-	//cmd.Stderr = mw
-	//Run the command, check for errors
-	//if err := cmd.Run(); err != nil {
-	//	return err, ""
-	//}
+        for {
+                scanner := bufio.NewScanner(file)
+                for scanner.Scan() {
+                        j.PrintToParent(scanner.Text())
+                }
+                file.Seek(0, os.SEEK_CUR)
 
-	cmdResults, err := cmd.Output()
-	if err != nil {
-		return err, ""
-	}
-	j.PrintToParent(string(cmdResults))
+                select {
+                case _, ok := <-watcher.Events:
+                        if !ok {
+                                return
+                        }
 
-	//Create empty output var
-	var commandOut string
+                case err, ok := <-watcher.Errors:
+                        if !ok {
+                                return
+                        }
+                        log.Printf("Error: %#v", err)
 
-	//If command was run with Batch system get output
-	if j.BatchExecution == true {
-		err, commandOut = GetOutput(Script, fmt.Sprint(j.OutputScriptPth, "/lsf_out.log"))
-		if err != nil {
-			return err, ""
-		}
-	}
-	//Return output
-	return nil, commandOut
+                case <-done:
+                        return
+                }
+        }
 }
 
-func RunSlurm(j *Job) (err error, out string) {
-	//Create Script Check for Errors
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
+func (j *Job) mkTempFile(template string) (out string, err error) {
+	file, err := ioutil.TempFile(j.OutputScriptPth, template)
 	if err != nil {
-		return err, ""
+		return "", err
 	}
 
-	//Open script and get its contents
-	file, err := ioutil.ReadFile(Script)
-	if err != nil {
-		return err, ""
-	}
-	fileText := string(file)
+	fileName := file.Name()
 
-	//Create empty command var
-	var cmd *exec.Cmd
-
-	//Determin if script to be run should be done locally or through the batch system
-	if j.BatchExecution == false {
-		cmd = exec.Command("/bin/bash", Script)
-	} else {
-		//Get output script paths
-		outputScriptPath := fmt.Sprint(j.OutputScriptPth, "/slurm_out.log")
-		//Hancle Native Specs
-		var Specs []string
-		if len(j.NativeSpecs) != 0 {
-			//Defines an array of illegal arguments which will not be passed in as native specifications
-			illegalArguments := []string{"-o"}
-			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
-		}
-		//If native specs were defined attach them to the end. Assemble bash command
-		if j.Bank == "" {
-			if len(Specs) != 0 {
-				cmd = exec.Command("sbatch", append(append([]string{"-o", outputScriptPath}, Specs...), Script)...)
-			} else {
-				cmd = exec.Command("sbatch", "-o", outputScriptPath, Script)
-			}
-		} else {
-			if len(Specs) != 0 {
-				cmd = exec.Command("sbatch", append(append([]string{"-A", j.Bank, "-o", outputScriptPath}, Specs...), Script)...)
-			} else {
-				cmd = exec.Command("sbatch", "-A", j.Bank, "-o", outputScriptPath, Script)
-			}
-
-		}
+	if err = os.Chown(fileName, j.UID, j.GID); err != nil {
+		log.Printf("os.Chown(%s, %d, %d) failed: %#v", fileName, j.UID, j.GID, err)
+		return "", err
 	}
 
-	//Assign setUID information and env. vars
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	cmd.Env = append(os.Environ())
-
-	//Handle Std out and Std err
-	//var stdBuffer bytes.Buffer
-	//mw := io.MultiWriter(os.Stdout, &stdBuffer)
-	//cmd.Stdout = mw
-	//cmd.Stderr = mw
-	//Run the command, check for errors
-	//j.Print := cmd.Output();
-	fmt.Println("Got this far")
-
-	cmdResults, err := cmd.Output()
-	if err != nil {
-		return err, ""
-	}
-	j.PrintToParent(string(cmdResults))
-
-	//Create empty output var
-	var commandOut string
-
-	//If command was run with Batch system get output
-	if !strings.Contains(fileText, "clone") {
-		err, commandOut = GetOutputSlurm(fmt.Sprint(j.OutputScriptPth, "/slurm_out.log"))
-		if err != nil {
-			return err, ""
-		}
-	}
-	//Return output
-	return nil, commandOut
-}
-
-func RunCobalt(j *Job) (err error, out string) {
-	//Usage: cqsub [-d] [-v] -p <project> -q <queue> -C <working directory>
-	//         --dependencies <jobid1>:<jobid2> --preemptable
-	//         -e envvar1=value1:envvar2=value2 -k <kernel profile>
-	//         -K <kernel options> -O <outputprefix> -t time <in minutes>
-	//         -E <error file path> -o <output file path> -i <input file path>
-	//         -n <number of nodes> -h -c <processor count> -m <mode co/vn>
-	//         -u <umask> --debuglog <cobaltlog file path>
-	//         --attrs <attr1=val1:attr2=val2> --run-users <user1>:<user2>
-	//         --run-project <command> <args>
-
-	//Create Script Check for Errors
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
-	if err != nil {
-		return err, ""
-	}
-
-	//Create empty command var
-	var cmd *exec.Cmd
-
-	//Determine if script to be run should be done locally or through the batch system
-	if j.BatchExecution == false {
-		cmd = exec.Command("/bin/bash", Script)
-
-		//Assign setUID information and env. vars
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-		cmd.Env = append(os.Environ())
-
-		//Handle Std out and Std err
-		var stdBuffer bytes.Buffer
-		mw := io.MultiWriter(os.Stdout, &stdBuffer)
-		cmd.Stdout = mw
-		cmd.Stderr = mw
-		//Run the command, check for errors
-		if err := cmd.Run(); err != nil {
-			return err, ""
-		}
-
-		//Create empty output var
-		var commandOut string
-
-		//Return output
-		return nil, commandOut
-	} else {
-		//Get output script paths
-		var outputScriptFile, errorScriptFile, logScriptFile *os.File
-		var err error
-
-		outputScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_out-*.log")
-		if err != nil {
-			return err, ""
-		}
-
-		errorScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_err-*.log")
-		if err != nil {
-			return err, ""
-		}
-
-		logScriptFile, err = ioutil.TempFile(j.OutputScriptPth, "cobalt_debug-*.log")
-		if err != nil {
-			return err, ""
-		}
-
-		outputScriptPath := outputScriptFile.Name()
-		errorScriptPath := errorScriptFile.Name()
-		logScriptPath := logScriptFile.Name()
-
-		/*
-			// Remove the output files on return
-			defer os.Remove(outputScriptPath)
-			defer os.Remove(errorScriptPath)
-			defer os.Remove(logScriptPath)
-		*/
-
-		if err = os.Chown(outputScriptPath, j.UID, j.GID); err != nil {
-			log.Printf("os.Chown(%s, %d, %d) failed: %#v", outputScriptPath, j.UID, j.GID, err)
-			return err, ""
-		}
-
-		if err = os.Chown(errorScriptPath, j.UID, j.GID); err != nil {
-			log.Printf("os.Chown(%s, %d, %d) failed: %#v", errorScriptPath, j.UID, j.GID, err)
-			return err, ""
-		}
-
-		if err = os.Chown(logScriptPath, j.UID, j.GID); err != nil {
-			log.Printf("os.Chown(%s, %d, %d) failed: %#v", logScriptPath, j.UID, j.GID, err)
-			return err, ""
-		}
-
-		//Handle Native Specs
-		var Specs []string
-		if len(j.NativeSpecs) != 0 {
-			//Defines an array of illegal arguments which will not be passed in as native specifications
-			illegalArguments := []string{"-E", "-o", "--debuglog"}
-			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
-		}
-		//If native specs were defined attach them to the end. Assemble bash command
-		batchCommand := "cqsub"
-		execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath, "--debuglog", logScriptPath}
-
-		if j.Bank != "" {
-			// Note: -p <project> may not map to "Bank"
-			execArgs = append(execArgs, "-p", j.Bank)
-		}
-
-		if len(Specs) != 0 {
-			execArgs = append(execArgs, Specs...)
-		}
-
-		execArgs = append(execArgs, Script)
-
-		cmd = exec.Command(batchCommand, execArgs...)
-
-		//Assign setUID information and env. vars
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-		cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-		cmd.Env = append(os.Environ())
-
-		//Handle stdout and stderr
-		var stdout, stderr bytes.Buffer
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		//Run the command, check for errors
-		err = cmd.Run()
-
-		errStr := string(stderr.Bytes())
-		if errStr != "" {
-			j.PrintToParent(errStr)
-		}
-
-		if err != nil {
-			return err, ""
-		}
-
-		jobid, err := strconv.Atoi(strings.TrimSpace(string(stdout.Bytes())))
-		if err != nil {
-			j.PrintToParent(fmt.Sprintf("Failed to read job ID: %#v", err))
-			return err, ""
-		}
-
-		j.PrintToParent(fmt.Sprintf("Waiting for job %d to complete.", jobid))
-
-		//Create empty output var
-		var commandOut string
-
-		//Build a command to check job status
-		var status *exec.Cmd
-
-		status = exec.Command("cqstat", fmt.Sprintf("%d", jobid))
-		//Assign setUID information and env. vars
-		status.SysProcAttr = &syscall.SysProcAttr{}
-		status.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-		status.Env = append(os.Environ())
-
-		//Get output
-		err, commandOut = GetOutputCobalt(status, outputScriptPath, errorScriptPath, logScriptPath)
-		if err != nil {
-			return err, ""
-		}
-
-		//Return output
-		return nil, commandOut
-	}
-}
-
-//Gets contents of a cobalt output file and returns it when available
-func GetOutputCobalt(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
-	sleepTime := 10 * time.Second
-
-	cmd := *statusCmd
-	ret := cmd.Run()
-
-	//Loop until cqstat returns non-zero
-	for ret == nil {
-		time.Sleep(sleepTime)
-
-		cmd = *statusCmd
-		ret = cmd.Run()
-	}
-
-	file, err := ioutil.ReadFile(logFile)
-	if err != nil {
-		return err, ""
-	}
-
-	//Return the debug log contents
-	return nil, string(file)
-}
-
-//Gets contents of a slurm output file and returns it when availible
-func GetOutputSlurm(outputFile string) (err error, output string) {
-	retry := true
-	for retry {
-		if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-			time.Sleep(10 * time.Millisecond)
-			continue
-		} else {
-			time.Sleep(50 * time.Millisecond)
-			file, err := ioutil.ReadFile(outputFile)
-			if err != nil {
-				return err, ""
-			}
-			os.Remove(outputFile)
-			return nil, string(file)
-		}
-	}
-	return nil, ""
-}
-
-//Parses lsf output file, finds the script that was just run, returns output if any when availible
-func GetOutput(scriptName string, outputFile string) (err error, output string) {
-	retry := true
-	var lineArray []string
-
-	for retry {
-
-		file, err := os.Open(outputFile)
-		if err != nil {
-			continue
-		}
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			lineArray = append(lineArray, scanner.Text())
-		}
-		if err := scanner.Err(); err != nil {
-			return err, ""
-		}
-
-		if len(lineArray) != 0 {
-			retry = false
-		}
-	}
-
-	file, err := os.Open(outputFile)
-	if err != nil {
-		return err, ""
-	}
-
-	var subLineArray []string
-	var startingLine int = 0
-	var endingLine int = 0
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lineArray = append(lineArray, scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
-		return err, ""
-	}
-
-	for i, line := range lineArray {
-		if strings.Contains(line, "The output (if any) follows:") {
-			startingLine = i
-			break
-		}
-	}
-
-	for i, line := range lineArray[startingLine:] {
-		if strings.Contains(line, "PS:") {
-			endingLine = startingLine + i
-			break
-		}
-	}
-
-	for _, line := range lineArray[startingLine+1 : endingLine-1] {
-		subLineArray = append(subLineArray, line)
-	}
-
-	file.Close()
-	file = nil
-	os.Remove(outputFile)
-	return nil, strings.Join(subLineArray, "\n")
-
+	return fileName, nil
 }
