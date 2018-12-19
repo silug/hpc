@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
 	"io/ioutil"
 	"log"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type Job struct {
@@ -145,55 +146,55 @@ func (j *Job) Run() (err error, out string) {
 }
 
 func (j *Job) tailFile(fileName string, done chan bool) {
-        watcher, werr := fsnotify.NewWatcher()
-        if werr != nil {
-                log.Fatal(werr)
-        }
-        defer watcher.Close()
+	watcher, werr := fsnotify.NewWatcher()
+	if werr != nil {
+		log.Fatal(werr)
+	}
+	defer watcher.Close()
 
-        for {
-                if _, err := os.Stat(fileName); os.IsNotExist(err) {
-                        time.Sleep(10 * time.Millisecond)
-                        j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
-                        continue
-                }
-                break
-        }
+	for {
+		if _, err := os.Stat(fileName); os.IsNotExist(err) {
+			time.Sleep(10 * time.Millisecond)
+			j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
+			continue
+		}
+		break
+	}
 
-        werr = watcher.Add(fileName)
-        if werr != nil {
-                log.Fatal(werr)
-        }
+	werr = watcher.Add(fileName)
+	if werr != nil {
+		log.Fatal(werr)
+	}
 
-        file, ferr := os.Open(fileName)
-        if ferr != nil {
-                log.Fatal(ferr)
-        }
-        defer file.Close()
+	file, ferr := os.Open(fileName)
+	if ferr != nil {
+		log.Fatal(ferr)
+	}
+	defer file.Close()
 
-        for {
-                scanner := bufio.NewScanner(file)
-                for scanner.Scan() {
-                        j.PrintToParent(scanner.Text())
-                }
-                file.Seek(0, os.SEEK_CUR)
+	for {
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			j.PrintToParent(scanner.Text())
+		}
+		file.Seek(0, os.SEEK_CUR)
 
-                select {
-                case _, ok := <-watcher.Events:
-                        if !ok {
-                                return
-                        }
+		select {
+		case _, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
 
-                case err, ok := <-watcher.Errors:
-                        if !ok {
-                                return
-                        }
-                        log.Printf("Error: %#v", err)
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("Error: %#v", err)
 
-                case <-done:
-                        return
-                }
-        }
+		case <-done:
+			return
+		}
+	}
 }
 
 func (j *Job) mkTempFile(template string) (out string, err error) {

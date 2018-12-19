@@ -131,7 +131,7 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 
 	var subLineArray []string
 	var startingLine int = 0
-	var endingLine int
+	var endingLine int = 0
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -155,12 +155,13 @@ func GetOutput(scriptName string, outputFile string) (err error, output string) 
 		}
 	}
 
-	for _, line := range lineArray[startingLine+34 : endingLine-1] {
+	for _, line := range lineArray[startingLine+1 : endingLine-1] {
 		subLineArray = append(subLineArray, line)
 	}
 
 	file.Close()
 	file = nil
+	os.Remove(outputFile)
 	return nil, strings.Join(subLineArray, "\n")
 
 }
