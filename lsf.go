@@ -2,7 +2,6 @@ package hpc
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -175,7 +174,7 @@ func (j *LSFJob) GetOutput(scriptName string, outputFile string) (err error, out
 	}
 
 	for _, line := range lineArray[startingLine+1 : endingLine-1] {
-		fmt.Println(line)
+		j.PrintToParent(line)
 		subLineArray = append(subLineArray, line)
 	}
 
