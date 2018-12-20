@@ -15,7 +15,7 @@ type SlurmJob struct {
 	args         []string
 }
 
-func (j *SlurmJob) New(job *Job) (error, *SlurmJob) {
+func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	return nil, SlurmJob{
 		job,
 		"sbatch",
@@ -99,7 +99,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 
 	//If command was run with Batch system get output
 	if outputScriptPath != "" {
-		err, commandOut = GetOutput(outputScriptPath)
+		err, commandOut = j.GetOutput(outputScriptPath)
 		if err != nil {
 			return err, ""
 		}

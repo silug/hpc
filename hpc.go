@@ -3,7 +3,6 @@ package hpc
 import (
 	"bufio"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
 	"io/ioutil"
 	"log"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 type Job struct {
@@ -100,101 +101,113 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err 
 }
 
 //Finds which batch system is installed on the system returns a specific number
-func (j *Job) DetectBatchSystem() (error, BatchJob) {
-	if j.BatchExecution == false {
-		return nil, j
-	}
+func (j *Job) DetectBatchSystem() error {
+	//if j.BatchExecution == false {
+	//	return nil, j
+	//}
 
 	osEnv := os.Environ()
-	counter := 0
+	//counter := 0
 	for _, entry := range osEnv {
 		if strings.Contains(entry, "LSF_BINDIR") {
-			return LSFJob{}.New(j)
+			l := new(LSFJob)
+			_, batch := l.New(j)
+			batch.RunJob()
+			batch.WaitForJob()
+			return nil
 		}
 	}
 
 	_, err := exec.LookPath("sbatch")
 	if err == nil {
-		return SlurmJob{}.New(j)
+		l := new(SlurmJob)
+		_, batch := l.New(j)
+		batch.RunJob()
+		batch.WaitForJob()
+		return nil
 	}
 
 	_, err = exec.LookPath("cqsub")
 	if err == nil {
 		_, err = exec.LookPath("cqstat")
 		if err == nil {
-			return CobaltJob{}.New(j)
+			l := new(CobaltJob)
+			_, batch := l.New(j)
+			batch.RunJob()
+			batch.WaitForJob()
+			return nil
 		} else {
-			return fmt.Errorf("Cobalt detected but can't monitor (found cqsub but no cqstat)"), interface{}
+			return fmt.Errorf("Cobalt detected but can't monitor (found cqsub but no cqstat)")
 		}
 	}
 
-	return fmt.Errorf("No batch system found"), interface{}
+	return fmt.Errorf("No batch system found")
 }
 
 //Initial func run. Gets batch system and calls the corresponding run
 func (j *Job) Run() (err error, out string) {
-	err, batch := j.DetectBatchSystem()
+	err = j.DetectBatchSystem()
 	if err != nil {
 		return err, ""
 	}
 
-	batch.RunJob()
-	batch.WaitForJob()
-	batch.GetOutput()
+	//batch.RunJob()
+	//batch.WaitForJob()
+	//batch.GetOutput()
 
 	return nil, ""
 }
 
 func (j *Job) tailFile(fileName string, done chan bool) {
-        watcher, werr := fsnotify.NewWatcher()
-        if werr != nil {
-                log.Fatal(werr)
-        }
-        defer watcher.Close()
+	watcher, werr := fsnotify.NewWatcher()
+	if werr != nil {
+		log.Fatal(werr)
+	}
+	defer watcher.Close()
 
-        for {
-                if _, err := os.Stat(fileName); os.IsNotExist(err) {
-                        time.Sleep(10 * time.Millisecond)
-                        j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
-                        continue
-                }
-                break
-        }
+	for {
+		if _, err := os.Stat(fileName); os.IsNotExist(err) {
+			time.Sleep(10 * time.Millisecond)
+			j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
+			continue
+		}
+		break
+	}
 
-        werr = watcher.Add(fileName)
-        if werr != nil {
-                log.Fatal(werr)
-        }
+	werr = watcher.Add(fileName)
+	if werr != nil {
+		log.Fatal(werr)
+	}
 
-        file, ferr := os.Open(fileName)
-        if ferr != nil {
-                log.Fatal(ferr)
-        }
-        defer file.Close()
+	file, ferr := os.Open(fileName)
+	if ferr != nil {
+		log.Fatal(ferr)
+	}
+	defer file.Close()
 
-        for {
-                scanner := bufio.NewScanner(file)
-                for scanner.Scan() {
-                        j.PrintToParent(scanner.Text())
-                }
-                file.Seek(0, os.SEEK_CUR)
+	for {
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			j.PrintToParent(scanner.Text())
+		}
+		file.Seek(0, os.SEEK_CUR)
 
-                select {
-                case _, ok := <-watcher.Events:
-                        if !ok {
-                                return
-                        }
+		select {
+		case _, ok := <-watcher.Events:
+			if !ok {
+				return
+			}
 
-                case err, ok := <-watcher.Errors:
-                        if !ok {
-                                return
-                        }
-                        log.Printf("Error: %#v", err)
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				return
+			}
+			log.Printf("Error: %#v", err)
 
-                case <-done:
-                        return
-                }
-        }
+		case <-done:
+			return
+		}
+	}
 }
 
 func (j *Job) mkTempFile(template string) (out string, err error) {

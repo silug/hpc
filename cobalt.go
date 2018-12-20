@@ -20,16 +20,12 @@ type CobaltJob struct {
 	args         []string
 }
 
-func (j *CobaltJob) New(job *Job) (error, *CobaltJob) {
-	j.Job = job
-	j.batchCommand = "cqsub"
-	j.args = []string{}
-	//return nil, &CobaltJob{
-	//	job,
-	//	"cqsub",
-	//	[]string{},
-	//}
-	return nil, j
+func (j CobaltJob) New(job *Job) (error, CobaltJob) {
+	return nil, CobaltJob{
+		job,
+		"cqsub",
+		[]string{},
+	}
 }
 
 func (j *CobaltJob) RunJob() (err error, out string) {
