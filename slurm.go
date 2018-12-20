@@ -1,7 +1,6 @@
 package hpc
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -86,7 +85,6 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 	//cmd.Stderr = mw
 	//Run the command, check for errors
 	//j.Print := cmd.Output();
-	fmt.Println("Got this far")
 
 	cmdResults, err := cmd.Output()
 	if err != nil {
@@ -117,14 +115,15 @@ func (j *SlurmJob) GetOutput(outputFile string) (err error, output string) {
 	retry := true
 	for retry {
 		if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(500 * time.Millisecond)
 			continue
 		} else {
-			time.Sleep(50 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 			file, err := ioutil.ReadFile(outputFile)
 			if err != nil {
 				return err, ""
 			}
+			os.Remove(outputFile)
 			return nil, string(file)
 		}
 	}

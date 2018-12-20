@@ -150,7 +150,7 @@ func (j *LSFJob) GetOutput(scriptName string, outputFile string) (err error, out
 
 	var subLineArray []string
 	var startingLine int = 0
-	var endingLine int
+	var endingLine int = 0
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -181,6 +181,7 @@ func (j *LSFJob) GetOutput(scriptName string, outputFile string) (err error, out
 
 	file.Close()
 	file = nil
+	os.Remove(outputFile)
 	return nil, strings.Join(subLineArray, "\n")
 
 }
