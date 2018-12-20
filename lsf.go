@@ -8,7 +8,21 @@ import (
 	"syscall"
 )
 
-func RunLSF(j *Job) (err error, out string) {
+type LSFJob struct {
+	*Job
+	batchCommand string
+	args         []string
+}
+
+func (j *LSFJob) New(job *Job) (error, *LSFJob) {
+	return nil, LSFJob{
+		job,
+		"bsub",
+		[]string{},
+	}
+}
+
+func (j *LSFJob) RunJob() (err error, out string) {
 	//Create Script Check for Errors
 	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
 	if err != nil {
@@ -27,13 +41,13 @@ func RunLSF(j *Job) (err error, out string) {
 	} else {
 		var err error
 
-		outputScriptPath, err = j.mkTempFile("lsf_out-*.log")
+		outputScriptPath, err = j.Job.mkTempFile("lsf_out-*.log")
 		if err != nil {
 			return err, ""
 		}
 		defer os.Remove(outputScriptPath)
 
-		errorScriptPath, err = j.mkTempFile("lsf_err-*.log")
+		errorScriptPath, err = j.Job.mkTempFile("lsf_err-*.log")
 		if err != nil {
 			return err, ""
 		}
@@ -99,8 +113,12 @@ func RunLSF(j *Job) (err error, out string) {
 	return nil, commandOut
 }
 
+func (j *LSFJob) WaitForJob() {
+	return
+}
+
 //Parses lsf output file, finds the script that was just run, returns output if any when availible
-func GetOutput(scriptName string, outputFile string) (err error, output string) {
+func (j *LSFJob) GetOutput(scriptName string, outputFile string) (err error, output string) {
 	retry := true
 	var lineArray []string
 

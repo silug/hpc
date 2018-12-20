@@ -14,25 +14,11 @@ import (
 	"time"
 )
 
-type CobaltJob struct {
-	*Job
-	batchCommand string
-	args         []string
+func (j *Job) New(job *Job) (error, *Job) {
+	return nil, job
 }
 
-func (j *CobaltJob) New(job *Job) (error, *CobaltJob) {
-	j.Job = job
-	j.batchCommand = "cqsub"
-	j.args = []string{}
-	//return nil, &CobaltJob{
-	//	job,
-	//	"cqsub",
-	//	[]string{},
-	//}
-	return nil, j
-}
-
-func (j *CobaltJob) RunJob() (err error, out string) {
+func (j *Job) RunJob() (err error, out string) {
 	//Usage: cqsub [-d] [-v] -p <project> -q <queue> -C <working directory>
 	//         --dependencies <jobid1>:<jobid2> --preemptable
 	//         -e envvar1=value1:envvar2=value2 -k <kernel profile>
@@ -81,19 +67,19 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 		var outputScriptPath, errorScriptPath, logScriptPath string
 		var err error
 
-		outputScriptPath, err = j.Job.mkTempFile("cobalt_out-*.log")
+		outputScriptPath, err = mkTempFile(j, "cobalt_out-*.log")
 		if err != nil {
 			return err, ""
 		}
 		defer os.Remove(outputScriptPath)
 
-		errorScriptPath, err = j.Job.mkTempFile("cobalt_err-*.log")
+		errorScriptPath, err = mkTempFile(j, "cobalt_err-*.log")
 		if err != nil {
 			return err, ""
 		}
 		defer os.Remove(errorScriptPath)
 
-		logScriptPath, err = j.Job.mkTempFile("cobalt_debug-*.log")
+		logScriptPath, err = mkTempFile(j, "cobalt_debug-*.log")
 		if err != nil {
 			return err, ""
 		}
@@ -180,16 +166,16 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 	}
 }
 
-func (j *CobaltJob) WaitForJob() {
+func (j *Job) WaitForJob() {
 	return
 }
 
 //Gets contents of a cobalt output file and returns it when available
-func (j *CobaltJob) GetOutput(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
+func (j *Job) GetOutput(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
 	sleepTime := 10 * time.Second
 
 	done := make(chan bool)
-	go j.Job.tailFile(logFile, done)
+	go tailFile(j, logFile, done)
 
 	cmd := *statusCmd
 	ret := cmd.Run()

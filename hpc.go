@@ -2,7 +2,6 @@ package hpc
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"github.com/fsnotify/fsnotify"
 	"io/ioutil"
@@ -23,6 +22,13 @@ type Job struct {
 	OutputScriptPth string
 	BatchExecution  bool
 	PrintToParent   func(string)
+}
+
+type BatchJob interface {
+	New() (error, interface{})
+	RunJob() (error, string)
+	WaitForJob()
+	GetOutput() (error, string)
 }
 
 //This function exists to help the native spec system
@@ -94,53 +100,48 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err 
 }
 
 //Finds which batch system is installed on the system returns a specific number
-func DetectBatchSystem() (num int) {
+func (j *Job) DetectBatchSystem() (error, BatchJob) {
+	if j.BatchExecution == false {
+		return nil, j
+	}
+
 	osEnv := os.Environ()
 	counter := 0
 	for _, entry := range osEnv {
 		if strings.Contains(entry, "LSF_BINDIR") {
-			counter = counter + 1
+			return LSFJob{}.New(j)
 		}
 	}
 
 	_, err := exec.LookPath("sbatch")
 	if err == nil {
-		counter = counter + 3
+		return SlurmJob{}.New(j)
 	}
 
 	_, err = exec.LookPath("cqsub")
 	if err == nil {
-
 		_, err = exec.LookPath("cqstat")
 		if err == nil {
-			counter = counter + 6
+			return CobaltJob{}.New(j)
 		} else {
-			log.Print("Cobalt detected but can't monitor (found cqsub but no cqstat)")
+			return fmt.Errorf("Cobalt detected but can't monitor (found cqsub but no cqstat)"), interface{}
 		}
 	}
 
-	return counter
-	//1 = LSF
-	//3 = Slurm
-	//6 = Cobalt
-	//4 = LSF + Slurm
-	//10 = LSF + Slurm + Cobalt
-	//9 = Slurm + Cobalt
-
+	return fmt.Errorf("No batch system found"), interface{}
 }
 
 //Initial func run. Gets batch system and calls the corresponding run
 func (j *Job) Run() (err error, out string) {
-	switch DetectBatchSystem() {
-	case 1:
-		return RunLSF(j)
-	case 3:
-		return RunSlurm(j)
-	case 6:
-		return RunCobalt(j)
-	default:
-		return errors.New("Batch System Detection Error"), ""
+	err, batch := j.DetectBatchSystem()
+	if err != nil {
+		return err, ""
 	}
+
+	batch.RunJob()
+	batch.WaitForJob()
+	batch.GetOutput()
+
 	return nil, ""
 }
 

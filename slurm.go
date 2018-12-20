@@ -9,7 +9,21 @@ import (
 	"time"
 )
 
-func RunSlurm(j *Job) (err error, out string) {
+type SlurmJob struct {
+	*Job
+	batchCommand string
+	args         []string
+}
+
+func (j *SlurmJob) New(job *Job) (error, *SlurmJob) {
+	return nil, SlurmJob{
+		job,
+		"sbatch",
+		[]string{},
+	}
+}
+
+func (j *SlurmJob) RunJob() (err error, out string) {
 	//Create Script Check for Errors
 	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
 	if err != nil {
@@ -29,7 +43,7 @@ func RunSlurm(j *Job) (err error, out string) {
 		var err error
 
 		//Get output script paths
-		outputScriptPath, err = j.mkTempFile("slurm_out-*.log")
+		outputScriptPath, err = j.Job.mkTempFile("slurm_out-*.log")
 		if err != nil {
 			return err, ""
 		}
@@ -85,7 +99,7 @@ func RunSlurm(j *Job) (err error, out string) {
 
 	//If command was run with Batch system get output
 	if outputScriptPath != "" {
-		err, commandOut = GetOutputSlurm(outputScriptPath)
+		err, commandOut = GetOutput(outputScriptPath)
 		if err != nil {
 			return err, ""
 		}
@@ -94,8 +108,12 @@ func RunSlurm(j *Job) (err error, out string) {
 	return nil, commandOut
 }
 
+func (j *SlurmJob) WaitForJob() {
+	return
+}
+
 //Gets contents of a slurm output file and returns it when availible
-func GetOutputSlurm(outputFile string) (err error, output string) {
+func (j *SlurmJob) GetOutput(outputFile string) (err error, output string) {
 	retry := true
 	for retry {
 		if _, err := os.Stat(outputFile); os.IsNotExist(err) {
