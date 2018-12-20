@@ -2,6 +2,7 @@ package hpc
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,7 +15,7 @@ type LSFJob struct {
 	args         []string
 }
 
-func (j *LSFJob) New(job *Job) (error, *LSFJob) {
+func (j LSFJob) New(job *Job) (error, LSFJob) {
 	return nil, LSFJob{
 		job,
 		"bsub",
@@ -104,7 +105,7 @@ func (j *LSFJob) RunJob() (err error, out string) {
 
 	//If command was run with Batch system get output
 	if outputScriptPath != "" {
-		err, commandOut = GetOutput(Script, outputScriptPath)
+		err, commandOut = j.GetOutput(Script, outputScriptPath)
 		if err != nil {
 			return err, ""
 		}
@@ -173,7 +174,8 @@ func (j *LSFJob) GetOutput(scriptName string, outputFile string) (err error, out
 		}
 	}
 
-	for _, line := range lineArray[startingLine+34 : endingLine-1] {
+	for _, line := range lineArray[startingLine+1 : endingLine-1] {
+		fmt.Println(line)
 		subLineArray = append(subLineArray, line)
 	}
 

@@ -67,19 +67,19 @@ func (j *Job) RunJob() (err error, out string) {
 		var outputScriptPath, errorScriptPath, logScriptPath string
 		var err error
 
-		outputScriptPath, err = mkTempFile(j, "cobalt_out-*.log")
+		outputScriptPath, err = j.mkTempFile("cobalt_out-*.log")
 		if err != nil {
 			return err, ""
 		}
 		defer os.Remove(outputScriptPath)
 
-		errorScriptPath, err = mkTempFile(j, "cobalt_err-*.log")
+		errorScriptPath, err = j.mkTempFile("cobalt_err-*.log")
 		if err != nil {
 			return err, ""
 		}
 		defer os.Remove(errorScriptPath)
 
-		logScriptPath, err = mkTempFile(j, "cobalt_debug-*.log")
+		logScriptPath, err = j.mkTempFile("cobalt_debug-*.log")
 		if err != nil {
 			return err, ""
 		}
@@ -175,7 +175,7 @@ func (j *Job) GetOutput(statusCmd *exec.Cmd, outputFile string, errorFile string
 	sleepTime := 10 * time.Second
 
 	done := make(chan bool)
-	go tailFile(j, logFile, done)
+	go j.tailFile(logFile, done)
 
 	cmd := *statusCmd
 	ret := cmd.Run()
