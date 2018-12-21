@@ -3,12 +3,14 @@ package hpc
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -28,8 +30,6 @@ type Job struct {
 type BatchJob interface {
 	New() (error, interface{})
 	RunJob() (error, string)
-	WaitForJob()
-	GetOutput() (error, string)
 }
 
 //This function exists to help the native spec system
@@ -107,14 +107,11 @@ func (j *Job) Run() (err error, out string) {
 	}
 
 	osEnv := os.Environ()
-	//counter := 0
 	for _, entry := range osEnv {
 		if strings.Contains(entry, "LSF_BINDIR") {
 			l := new(LSFJob)
 			_, batch := l.New(j)
 			return batch.RunJob()
-			//batch.WaitForJob()
-			//return nil
 		}
 	}
 
@@ -123,8 +120,6 @@ func (j *Job) Run() (err error, out string) {
 		l := new(SlurmJob)
 		_, batch := l.New(j)
 		return batch.RunJob()
-		//batch.WaitForJob()
-		//return nil
 	}
 
 	_, err = exec.LookPath("cqsub")
@@ -134,14 +129,21 @@ func (j *Job) Run() (err error, out string) {
 			l := new(CobaltJob)
 			_, batch := l.New(j)
 			return batch.RunJob()
-			//batch.WaitForJob()
-			//return nil
 		} else {
 			return fmt.Errorf("Cobalt detected but can't monitor (found cqsub but no cqstat)"), ""
 		}
 	}
 
 	return fmt.Errorf("No batch system found"), ""
+}
+
+func (j *Job) tailPipe(pipe io.ReadCloser) {
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		j.PrintToParent(scanner.Text())
+	}
+
+	return
 }
 
 func (j *Job) tailFile(fileName string, done chan bool) {
@@ -210,4 +212,15 @@ func (j *Job) mkTempFile(template string) (out string, err error) {
 	}
 
 	return fileName, nil
+}
+
+func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
+	cmd = exec.Command(args[0], args[1:]...)
+
+	//Assign setUID information and env. vars
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
+	cmd.Env = append(os.Environ())
+
+	return
 }

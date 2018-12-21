@@ -3,13 +3,10 @@ package hpc
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -17,56 +14,41 @@ type CobaltJob struct {
 	*Job
 	batchCommand string
 	args         []string
+	out          []string
+	statusCmd    string
 }
 
 func (j CobaltJob) New(job *Job) (error, CobaltJob) {
-	return nil, CobaltJob{
-		job,
-		"cqsub",
-		[]string{},
-	}
-}
-
-func (j *CobaltJob) RunJob() (err error, out string) {
-	//Usage: cqsub [-d] [-v] -p <project> -q <queue> -C <working directory>
-	//         --dependencies <jobid1>:<jobid2> --preemptable
-	//         -e envvar1=value1:envvar2=value2 -k <kernel profile>
-	//         -K <kernel options> -O <outputprefix> -t time <in minutes>
-	//         -E <error file path> -o <output file path> -i <input file path>
-	//         -n <number of nodes> -h -c <processor count> -m <mode co/vn>
-	//         -u <umask> --debuglog <cobaltlog file path>
-	//         --attrs <attr1=val1:attr2=val2> --run-users <user1>:<user2>
-	//         --run-project <command> <args>
-
 	//Create Script Check for Errors
 	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
 	if err != nil {
-		return err, ""
+		return err, CobaltJob{}
 	}
-
-	//Create empty command var
-	var cmd *exec.Cmd
 
 	//Get output script paths
 	var outputScriptPath, errorScriptPath, logScriptPath string
 
 	outputScriptPath, err = j.Job.mkTempFile("cobalt_out-*.log")
 	if err != nil {
-		return err, ""
+		return err, CobaltJob{}
 	}
-	defer os.Remove(outputScriptPath)
 
 	errorScriptPath, err = j.Job.mkTempFile("cobalt_err-*.log")
 	if err != nil {
-		return err, ""
+		return err, CobaltJob{}
 	}
-	defer os.Remove(errorScriptPath)
 
 	logScriptPath, err = j.Job.mkTempFile("cobalt_debug-*.log")
 	if err != nil {
-		return err, ""
+		return err, CobaltJob{}
 	}
-	defer os.Remove(logScriptPath)
+
+	files := []string{outputScriptPath, errorScriptPath, logScriptPath}
+	execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath, "--debuglog", logScriptPath}
+
+	if j.Bank != "" {
+		execArgs = append(execArgs, "-p", j.Bank)
+	}
 
 	//Handle Native Specs
 	var Specs []string
@@ -75,27 +57,19 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 		illegalArguments := []string{"-E", "-o", "--debuglog"}
 		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 	}
+
 	//If native specs were defined attach them to the end. Assemble bash command
-	batchCommand := "cqsub"
-	execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath, "--debuglog", logScriptPath}
-
-	if j.Bank != "" {
-		// Note: -p <project> may not map to "Bank"
-		execArgs = append(execArgs, "-p", j.Bank)
-	}
-
 	if len(Specs) != 0 {
 		execArgs = append(execArgs, Specs...)
 	}
 
 	execArgs = append(execArgs, Script)
 
-	cmd = exec.Command(batchCommand, execArgs...)
+	return nil, CobaltJob{job, "cqsub", execArgs, files, "cqstat"}
+}
 
-	//Assign setUID information and env. vars
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	cmd.Env = append(os.Environ())
+func (j *CobaltJob) RunJob() (err error, out string) {
+	cmd := j.Job.setUid(append([]string{j.batchCommand}, j.args...))
 
 	//Handle stdout and stderr
 	var stdout, stderr bytes.Buffer
@@ -126,67 +100,27 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 	log.Printf("Waiting for job %d to complete.", jobid)
 	j.PrintToParent(fmt.Sprintf("Waiting for job %d to complete.", jobid))
 
-	//Create empty output var
-	var commandOut string
-
 	//Build a command to check job status
-	var status *exec.Cmd
-
-	status = exec.Command("cqstat", fmt.Sprintf("%d", jobid))
-	//Assign setUID information and env. vars
-	status.SysProcAttr = &syscall.SysProcAttr{}
-	status.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	status.Env = append(os.Environ())
-
-	//Get output
-	err, commandOut = j.GetOutput(status, outputScriptPath, errorScriptPath, logScriptPath)
-	if err != nil {
-		return err, ""
-	}
-
-	//Return output
-	return nil, commandOut
-}
-
-func (j *CobaltJob) WaitForJob() {
-	return
-}
-
-//Gets contents of a cobalt output file and returns it when available
-func (j *CobaltJob) GetOutput(statusCmd *exec.Cmd, outputFile string, errorFile string, logFile string) (err error, output string) {
-	sleepTime := 10 * time.Second
+	statusCmd := j.Job.setUid([]string{j.statusCmd, fmt.Sprintf("%d", jobid)})
 
 	done := make(chan bool)
-	go j.Job.tailFile(logFile, done)
+	for _, file := range j.out {
+		go j.Job.tailFile(file, done)
+		defer os.Remove(file)
+	}
 
-	cmd := *statusCmd
-	ret := cmd.Run()
+	sleepTime := 10 * time.Second
+	status := *statusCmd
+	ret := status.Run()
 
 	//Loop until cqstat returns non-zero
 	for ret == nil {
 		time.Sleep(sleepTime)
 
-		cmd = *statusCmd
-		ret = cmd.Run()
+		status = *statusCmd
+		ret = status.Run()
 	}
 	close(done)
 
-	buf := []byte("\nJob stdout:\n")
-
-	file, err := ioutil.ReadFile(outputFile)
-	if err != nil {
-		return err, ""
-	}
-	buf = append(buf, file...)
-
-	buf = append(buf, []byte("\nJob stderr:\n")...)
-
-	file, err = ioutil.ReadFile(errorFile)
-	if err != nil {
-		return err, ""
-	}
-	buf = append(buf, file...)
-
-	//Return the debug log contents
-	return nil, string(buf)
+	return nil, ""
 }

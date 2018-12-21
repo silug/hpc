@@ -1,11 +1,7 @@
 package hpc
 
 import (
-	"bufio"
-	"os"
-	"os/exec"
-	"strings"
-	"syscall"
+	"io"
 )
 
 type LSFJob struct {
@@ -15,37 +11,18 @@ type LSFJob struct {
 }
 
 func (j LSFJob) New(job *Job) (error, LSFJob) {
-	return nil, LSFJob{
-		job,
-		"bsub",
-		[]string{},
-	}
-}
-
-func (j *LSFJob) RunJob() (err error, out string) {
 	//Create Script Check for Errors
 	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
 	if err != nil {
-		return err, ""
+		return err, LSFJob{}
 	}
 
-	//Create empty command var
-	var cmd *exec.Cmd
+	//Assemble bash command
+	execArgs := []string{"-I"}
 
-	//Get output script paths
-	var outputScriptPath, errorScriptPath string
-
-	outputScriptPath, err = j.Job.mkTempFile("lsf_out-*.log")
-	if err != nil {
-		return err, ""
+	if j.Bank != "" {
+		execArgs = append(execArgs, "-G", j.Bank)
 	}
-	defer os.Remove(outputScriptPath)
-
-	errorScriptPath, err = j.Job.mkTempFile("lsf_err-*.log")
-	if err != nil {
-		return err, ""
-	}
-	defer os.Remove(errorScriptPath)
 
 	//Handle Native Specs
 	var Specs []string
@@ -55,125 +32,39 @@ func (j *LSFJob) RunJob() (err error, out string) {
 		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
 	}
 
-	//Assemble bash command
-	batchCommand := "bsub"
-	execArgs := []string{"-o", outputScriptPath, "-e", errorScriptPath}
-
-	if j.Bank != "" {
-		execArgs = append(execArgs, "-G", j.Bank)
-	}
-
 	if len(Specs) != 0 {
 		execArgs = append(execArgs, Specs...)
 	}
 
 	execArgs = append(execArgs, Script)
 
-	cmd = exec.Command(batchCommand, execArgs...)
-
-	//Assign setUID information and env. vars
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
-	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	cmd.Env = append(os.Environ())
-
-	//Handle Std out and Std err
-	//var stdBuffer bytes.Buffer
-	//mw := io.MultiWriter(os.Stdout, &stdBuffer)
-	//cmd.Stdout = mw
-	//cmd.Stderr = mw
-	//Run the command, check for errors
-	//if err := cmd.Run(); err != nil {
-	//	return err, ""
-	//}
-
-	cmdResults, err := cmd.Output()
-	if err != nil {
-		return err, ""
-	}
-	j.PrintToParent(string(cmdResults))
-
-	//Create empty output var
-	var commandOut string
-
-	//If command was run with Batch system get output
-	if outputScriptPath != "" {
-		err, commandOut = j.GetOutput(Script, outputScriptPath)
-		if err != nil {
-			return err, ""
-		}
-	}
-	//Return output
-	return nil, commandOut
+	return nil, LSFJob{job, "bsub", execArgs}
 }
 
-func (j *LSFJob) WaitForJob() {
+func (j *LSFJob) RunJob() (err error, out string) {
+	cmd := j.Job.setUid(append([]string{j.batchCommand}, j.args...))
+
+	var stdout, stderr io.ReadCloser
+
+	stdout, err = cmd.StdoutPipe()
+	if err != nil {
+		return
+	}
+
+	stderr, err = cmd.StderrPipe()
+	if err != nil {
+		return
+	}
+
+	err = cmd.Start()
+	if err != nil {
+		return
+	}
+
+	j.Job.tailPipe(stdout)
+	j.Job.tailPipe(stderr)
+
+	err = cmd.Wait()
+
 	return
-}
-
-//Parses lsf output file, finds the script that was just run, returns output if any when availible
-func (j *LSFJob) GetOutput(scriptName string, outputFile string) (err error, output string) {
-	retry := true
-	var lineArray []string
-
-	for retry {
-
-		file, err := os.Open(outputFile)
-		if err != nil {
-			continue
-		}
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			lineArray = append(lineArray, scanner.Text())
-		}
-		if err := scanner.Err(); err != nil {
-			return err, ""
-		}
-
-		if len(lineArray) != 0 {
-			retry = false
-		}
-	}
-
-	file, err := os.Open(outputFile)
-	if err != nil {
-		return err, ""
-	}
-
-	var subLineArray []string
-	var startingLine int = 0
-	var endingLine int = 0
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lineArray = append(lineArray, scanner.Text())
-	}
-	if err := scanner.Err(); err != nil {
-		return err, ""
-	}
-
-	for i, line := range lineArray {
-		if strings.Contains(line, "The output (if any) follows:") {
-			startingLine = i
-			break
-		}
-	}
-
-	for i, line := range lineArray[startingLine:] {
-		if strings.Contains(line, "PS:") {
-			endingLine = startingLine + i
-			break
-		}
-	}
-
-	for _, line := range lineArray[startingLine+1 : endingLine-1] {
-		j.PrintToParent(line)
-		subLineArray = append(subLineArray, line)
-	}
-
-	file.Close()
-	file = nil
-	os.Remove(outputFile)
-	return nil, strings.Join(subLineArray, "\n")
-
 }
