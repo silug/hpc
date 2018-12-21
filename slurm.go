@@ -35,43 +35,36 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 	//Get output script paths
 	var outputScriptPath string
 
-	//Determin if script to be run should be done locally or through the batch system
-	if j.BatchExecution == false {
-		cmd = exec.Command("/bin/bash", Script)
-	} else {
-		var err error
-
-		//Get output script paths
-		outputScriptPath, err = j.Job.mkTempFile("slurm_out-*.log")
-		if err != nil {
-			return err, ""
-		}
-		defer os.Remove(outputScriptPath)
-
-		//Handle Native Specs
-		var Specs []string
-		if len(j.NativeSpecs) != 0 {
-			//Defines an array of illegal arguments which will not be passed in as native specifications
-			illegalArguments := []string{"-o"}
-			Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
-		}
-
-		//Assemble bash command
-		batchCommand := "sbatch"
-		execArgs := []string{"-o", outputScriptPath}
-
-		if j.Bank != "" {
-			execArgs = append(execArgs, "-A", j.Bank)
-		}
-
-		if len(Specs) != 0 {
-			execArgs = append(execArgs, Specs...)
-		}
-
-		execArgs = append(execArgs, Script)
-
-		cmd = exec.Command(batchCommand, execArgs...)
+	//Get output script paths
+	outputScriptPath, err = j.Job.mkTempFile("slurm_out-*.log")
+	if err != nil {
+		return err, ""
 	}
+	defer os.Remove(outputScriptPath)
+
+	//Handle Native Specs
+	var Specs []string
+	if len(j.NativeSpecs) != 0 {
+		//Defines an array of illegal arguments which will not be passed in as native specifications
+		illegalArguments := []string{"-o"}
+		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+	}
+
+	//Assemble bash command
+	batchCommand := "sbatch"
+	execArgs := []string{"-o", outputScriptPath}
+
+	if j.Bank != "" {
+		execArgs = append(execArgs, "-A", j.Bank)
+	}
+
+	if len(Specs) != 0 {
+		execArgs = append(execArgs, Specs...)
+	}
+
+	execArgs = append(execArgs, Script)
+
+	cmd = exec.Command(batchCommand, execArgs...)
 
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}

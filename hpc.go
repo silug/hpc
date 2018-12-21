@@ -100,11 +100,11 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err 
 
 }
 
-//Finds which batch system is installed on the system returns a specific number
-func (j *Job) DetectBatchSystem() error {
-	//if j.BatchExecution == false {
-	//	return nil, j
-	//}
+//Initial func run. Gets batch system and calls the corresponding run
+func (j *Job) Run() (err error, out string) {
+	if j.BatchExecution == false {
+		return j.RunJob()
+	}
 
 	osEnv := os.Environ()
 	//counter := 0
@@ -112,19 +112,19 @@ func (j *Job) DetectBatchSystem() error {
 		if strings.Contains(entry, "LSF_BINDIR") {
 			l := new(LSFJob)
 			_, batch := l.New(j)
-			batch.RunJob()
-			batch.WaitForJob()
-			return nil
+			return batch.RunJob()
+			//batch.WaitForJob()
+			//return nil
 		}
 	}
 
-	_, err := exec.LookPath("sbatch")
+	_, err = exec.LookPath("sbatch")
 	if err == nil {
 		l := new(SlurmJob)
 		_, batch := l.New(j)
-		batch.RunJob()
-		batch.WaitForJob()
-		return nil
+		return batch.RunJob()
+		//batch.WaitForJob()
+		//return nil
 	}
 
 	_, err = exec.LookPath("cqsub")
@@ -133,29 +133,15 @@ func (j *Job) DetectBatchSystem() error {
 		if err == nil {
 			l := new(CobaltJob)
 			_, batch := l.New(j)
-			batch.RunJob()
-			batch.WaitForJob()
-			return nil
+			return batch.RunJob()
+			//batch.WaitForJob()
+			//return nil
 		} else {
-			return fmt.Errorf("Cobalt detected but can't monitor (found cqsub but no cqstat)")
+			return fmt.Errorf("Cobalt detected but can't monitor (found cqsub but no cqstat)"), ""
 		}
 	}
 
-	return fmt.Errorf("No batch system found")
-}
-
-//Initial func run. Gets batch system and calls the corresponding run
-func (j *Job) Run() (err error, out string) {
-	err = j.DetectBatchSystem()
-	if err != nil {
-		return err, ""
-	}
-
-	//batch.RunJob()
-	//batch.WaitForJob()
-	//batch.GetOutput()
-
-	return nil, ""
+	return fmt.Errorf("No batch system found"), ""
 }
 
 func (j *Job) tailFile(fileName string, done chan bool) {
