@@ -12,7 +12,7 @@ type LSFJob struct {
 
 func (j LSFJob) New(job *Job) (error, LSFJob) {
 	//Create Script Check for Errors
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
+	err, Script := BuildScript(job.ScriptContents, "batch_script", job.UID, job.GID, job.OutputScriptPth)
 	if err != nil {
 		return err, LSFJob{}
 	}
@@ -20,16 +20,16 @@ func (j LSFJob) New(job *Job) (error, LSFJob) {
 	//Assemble bash command
 	execArgs := []string{"-I"}
 
-	if j.Bank != "" {
-		execArgs = append(execArgs, "-G", j.Bank)
+	if job.Bank != "" {
+		execArgs = append(execArgs, "-G", job.Bank)
 	}
 
 	//Handle Native Specs
 	var Specs []string
-	if len(j.NativeSpecs) != 0 {
+	if len(job.NativeSpecs) != 0 {
 		//Defines an array of illegal arguments which will not be passed in as native specifications
 		illegalArguments := []string{"-e", "-o", "-eo"}
-		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
 	}
 
 	if len(Specs) != 0 {

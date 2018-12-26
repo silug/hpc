@@ -2,7 +2,6 @@ package hpc
 
 import (
 	"io"
-	"os"
 )
 
 type SlurmJob struct {
@@ -14,7 +13,7 @@ type SlurmJob struct {
 
 func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	//Create Script Check for Errors
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
+	err, Script := BuildScript(job.ScriptContents, "batch_script", job.UID, job.GID, job.OutputScriptPth)
 	if err != nil {
 		return err, SlurmJob{}
 	}
@@ -23,24 +22,25 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	var outputScriptPath string
 
 	//Get output script paths
-	outputScriptPath, err = j.Job.mkTempFile("slurm_out-*.log")
+	outputScriptPath, err = j.Job.mkTempFile(job, "slurm_out-*.log")
 	if err != nil {
 		return err, SlurmJob{}
 	}
 
 	files := []string{outputScriptPath}
-	execArgs := []string{"-W", "-o", outputScriptPath}
+	//	execArgs := []string{"-W", "-o", outputScriptPath}
+	execArgs := []string{}
 
-	if j.Bank != "" {
-		execArgs = append(execArgs, "-A", j.Bank)
+	if job.Bank != "" {
+		execArgs = append(execArgs, "-A", job.Bank)
 	}
 
 	//Handle Native Specs
 	var Specs []string
-	if len(j.NativeSpecs) != 0 {
+	if len(job.NativeSpecs) != 0 {
 		//Defines an array of illegal arguments which will not be passed in as native specifications
 		illegalArguments := []string{"-o"}
-		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
 	}
 
 	if len(Specs) != 0 {
@@ -49,7 +49,7 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "sbatch", execArgs, files}
+	return nil, SlurmJob{job, "srun", execArgs, files}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {
@@ -75,14 +75,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 	j.Job.tailPipe(stdout)
 	j.Job.tailPipe(stderr)
 
-	done := make(chan bool)
-	for _, file := range j.out {
-		go j.Job.tailFile(file, done)
-		defer os.Remove(file)
-	}
-
 	err = cmd.Wait()
-	close(done)
 
 	return
 }

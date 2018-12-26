@@ -20,7 +20,7 @@ type CobaltJob struct {
 
 func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	//Create Script Check for Errors
-	err, Script := BuildScript(j.ScriptContents, "batch_script", j.UID, j.GID, j.OutputScriptPth)
+	err, Script := BuildScript(job.ScriptContents, "batch_script", job.UID, job.GID, job.OutputScriptPth)
 	if err != nil {
 		return err, CobaltJob{}
 	}
@@ -28,17 +28,17 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	//Get output script paths
 	var outputScriptPath, errorScriptPath, logScriptPath string
 
-	outputScriptPath, err = j.Job.mkTempFile("cobalt_out-*.log")
+	outputScriptPath, err = j.Job.mkTempFile(job, "cobalt_out-*.log")
 	if err != nil {
 		return err, CobaltJob{}
 	}
 
-	errorScriptPath, err = j.Job.mkTempFile("cobalt_err-*.log")
+	errorScriptPath, err = j.Job.mkTempFile(job, "cobalt_err-*.log")
 	if err != nil {
 		return err, CobaltJob{}
 	}
 
-	logScriptPath, err = j.Job.mkTempFile("cobalt_debug-*.log")
+	logScriptPath, err = j.Job.mkTempFile(job, "cobalt_debug-*.log")
 	if err != nil {
 		return err, CobaltJob{}
 	}
@@ -47,7 +47,7 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath, "--debuglog", logScriptPath}
 
 	if j.Bank != "" {
-		execArgs = append(execArgs, "-p", j.Bank)
+		execArgs = append(execArgs, "-p", job.Bank)
 	}
 
 	//Handle Native Specs
@@ -55,7 +55,7 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	if len(j.NativeSpecs) != 0 {
 		//Defines an array of illegal arguments which will not be passed in as native specifications
 		illegalArguments := []string{"-E", "-o", "--debuglog"}
-		Specs = RemoveIllegalParams(j.NativeSpecs, illegalArguments)
+		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
 	}
 
 	//If native specs were defined attach them to the end. Assemble bash command

@@ -156,7 +156,7 @@ func (j *Job) tailFile(fileName string, done chan bool) {
 	for {
 		if _, err := os.Stat(fileName); os.IsNotExist(err) {
 			time.Sleep(10 * time.Millisecond)
-			j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
+			//j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
 			continue
 		}
 		break
@@ -198,16 +198,16 @@ func (j *Job) tailFile(fileName string, done chan bool) {
 	}
 }
 
-func (j *Job) mkTempFile(template string) (out string, err error) {
-	file, err := ioutil.TempFile(j.OutputScriptPth, template)
+func (j *Job) mkTempFile(job *Job, template string) (out string, err error) {
+	file, err := ioutil.TempFile(job.OutputScriptPth, template)
 	if err != nil {
 		return "", err
 	}
 
 	fileName := file.Name()
 
-	if err = os.Chown(fileName, j.UID, j.GID); err != nil {
-		log.Printf("os.Chown(%s, %d, %d) failed: %#v", fileName, j.UID, j.GID, err)
+	if err = os.Chown(fileName, job.UID, job.GID); err != nil {
+		log.Printf("os.Chown(%s, %d, %d) failed: %#v", fileName, job.UID, job.GID, err)
 		return "", err
 	}
 
