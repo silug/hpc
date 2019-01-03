@@ -22,7 +22,7 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	var outputScriptPath string
 
 	//Get output script paths
-	outputScriptPath, err = j.Job.mkTempFile(job, "slurm_out-*.log")
+	outputScriptPath, err = job.mkTempFile(job, "slurm_out-*.log")
 	if err != nil {
 		return err, SlurmJob{}
 	}

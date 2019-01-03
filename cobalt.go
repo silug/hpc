@@ -28,17 +28,17 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	//Get output script paths
 	var outputScriptPath, errorScriptPath, logScriptPath string
 
-	outputScriptPath, err = j.Job.mkTempFile(job, "cobalt_out-*.log")
+	outputScriptPath, err = job.mkTempFile(job, "cobalt_out-*.log")
 	if err != nil {
 		return err, CobaltJob{}
 	}
 
-	errorScriptPath, err = j.Job.mkTempFile(job, "cobalt_err-*.log")
+	errorScriptPath, err = job.mkTempFile(job, "cobalt_err-*.log")
 	if err != nil {
 		return err, CobaltJob{}
 	}
 
-	logScriptPath, err = j.Job.mkTempFile(job, "cobalt_debug-*.log")
+	logScriptPath, err = job.mkTempFile(job, "cobalt_debug-*.log")
 	if err != nil {
 		return err, CobaltJob{}
 	}
@@ -46,13 +46,13 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	files := []string{outputScriptPath, errorScriptPath, logScriptPath}
 	execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath, "--debuglog", logScriptPath}
 
-	if j.Bank != "" {
+	if job.Bank != "" {
 		execArgs = append(execArgs, "-p", job.Bank)
 	}
 
 	//Handle Native Specs
 	var Specs []string
-	if len(j.NativeSpecs) != 0 {
+	if len(job.NativeSpecs) != 0 {
 		//Defines an array of illegal arguments which will not be passed in as native specifications
 		illegalArguments := []string{"-E", "-o", "--debuglog"}
 		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
