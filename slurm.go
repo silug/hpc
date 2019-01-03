@@ -49,7 +49,7 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "srun", execArgs, files}
+	return nil, SlurmJob{job, "salloc", execArgs, files}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {
@@ -72,8 +72,8 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 		return
 	}
 
-	j.Job.tailPipe(stdout)
-	j.Job.tailPipe(stderr)
+	go j.Job.tailPipe(stdout)
+	go j.Job.tailPipe(stderr)
 
 	err = cmd.Wait()
 
