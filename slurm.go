@@ -31,10 +31,6 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	//	execArgs := []string{"-W", "-o", outputScriptPath}
 	execArgs := []string{}
 
-	if job.Bank != "" {
-		execArgs = append(execArgs, "-A", job.Bank)
-	}
-
 	//Handle Native Specs
 	var Specs []string
 	if len(job.NativeSpecs) != 0 {

@@ -46,10 +46,6 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	files := []string{outputScriptPath, errorScriptPath, logScriptPath}
 	execArgs := []string{"-o", outputScriptPath, "-E", errorScriptPath, "--debuglog", logScriptPath}
 
-	if job.Bank != "" {
-		execArgs = append(execArgs, "-p", job.Bank)
-	}
-
 	//Handle Native Specs
 	var Specs []string
 	if len(job.NativeSpecs) != 0 {

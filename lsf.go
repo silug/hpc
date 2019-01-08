@@ -20,10 +20,6 @@ func (j LSFJob) New(job *Job) (error, LSFJob) {
 	//Assemble bash command
 	execArgs := []string{"-I"}
 
-	if job.Bank != "" {
-		execArgs = append(execArgs, "-G", job.Bank)
-	}
-
 	//Handle Native Specs
 	var Specs []string
 	if len(job.NativeSpecs) != 0 {

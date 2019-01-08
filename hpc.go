@@ -19,7 +19,6 @@ import (
 type Job struct {
 	ScriptContents  string
 	NativeSpecs     []string
-	Bank            string
 	UID             int
 	GID             int
 	OutputScriptPth string
