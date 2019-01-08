@@ -8,7 +8,6 @@ type SlurmJob struct {
 	*Job
 	batchCommand string
 	args         []string
-	out          []string
 }
 
 func (j SlurmJob) New(job *Job) (error, SlurmJob) {
@@ -18,34 +17,16 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 		return err, SlurmJob{}
 	}
 
-	//Get output script paths
-	var outputScriptPath string
-
-	//Get output script paths
-	outputScriptPath, err = job.mkTempFile(job, "slurm_out-*.log")
-	if err != nil {
-		return err, SlurmJob{}
-	}
-
-	files := []string{outputScriptPath}
-	//	execArgs := []string{"-W", "-o", outputScriptPath}
-	execArgs := []string{}
+	var execArgs []string
 
 	//Handle Native Specs
-	var Specs []string
 	if len(job.NativeSpecs) != 0 {
-		//Defines an array of illegal arguments which will not be passed in as native specifications
-		illegalArguments := []string{"-o"}
-		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
-	}
-
-	if len(Specs) != 0 {
-		execArgs = append(execArgs, Specs...)
+		execArgs = append(execArgs, job.NativeSpecs...)
 	}
 
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "salloc", execArgs, files}
+	return nil, SlurmJob{job, "salloc", execArgs}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {

@@ -114,7 +114,7 @@ func (j *Job) Run() (err error, out string) {
 		}
 	}
 
-	_, err = exec.LookPath("sbatch")
+	_, err = exec.LookPath("salloc")
 	if err == nil {
 		l := new(SlurmJob)
 		_, batch := l.New(j)
