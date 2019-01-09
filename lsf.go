@@ -61,6 +61,9 @@ func (j *LSFJob) RunJob() (err error, out string) {
 	go j.Job.tailPipe(stderr)
 
 	err = cmd.Wait()
+	if err != nil {
+		return err, ""
+	}
 
 	return
 }
