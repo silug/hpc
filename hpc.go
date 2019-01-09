@@ -85,6 +85,8 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err 
 		return fmt.Errorf("Unable to create Script file: %v", scriptErr), ""
 	}
 	fmt.Fprintf(batchScript, "#!/bin/bash\n")
+	fmt.Fprintf(batchScript, "set -eo pipefail\n")
+	fmt.Fprintf(batchScript, "set +o noclobber\n")
 	fmt.Fprintf(batchScript, cmd)
 
 	chmodErr := os.Chmod(batchScriptFull, 0750)
