@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"strings"
 	"syscall"
@@ -221,7 +222,34 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	cmd.Env = append(os.Environ())
+
+	// Sanitize the environment
+	user, err := user.LookupId(fmt.Sprintf("%d", j.UID))
+	if err != nil {
+		log.Printf("Lookup failed for user %d", j.UID)
+	}
+
+	var safeEnv []string
+	for _, entry := range os.Environ() {
+		env := strings.SplitN(entry, "=", 2)
+		switch env[0] {
+		case "LOGNAME", "USER":
+			// Return the setuid username
+			if user != nil {
+				safeEnv = append(safeEnv, fmt.Sprintf("%s=%s", env[0], user.Username))
+			}
+		case "HOME":
+			// Return the setuid user home directory
+			if user != nil {
+				safeEnv = append(safeEnv, fmt.Sprintf("%s=%s", env[0], user.HomeDir))
+			}
+		case "PATH":
+			safeEnv = append(safeEnv, entry)
+		default:
+			// Filter out the entry
+		}
+	}
+	cmd.Env = safeEnv
 
 	return
 }
