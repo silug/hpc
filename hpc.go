@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"strings"
 	"syscall"
@@ -107,15 +108,12 @@ func (j *Job) Run() (err error, out string) {
 		return j.RunJob()
 	}
 
-	osEnv := os.Environ()
-	for _, entry := range osEnv {
-		if strings.Contains(entry, "LSF_BINDIR") {
-			l := new(LSFJob)
-			_, batch := l.New(j)
-			return batch.RunJob()
-		}
-	}
-
+	_, err = exec.LookPath("bsub")
+        if err == nil {
+                l := new(LSFJob)
+                _, batch := l.New(j)
+                return batch.RunJob()
+        }
 	_, err = exec.LookPath("salloc")
 	if err == nil {
 		l := new(SlurmJob)
@@ -221,7 +219,41 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
-	cmd.Env = append(os.Environ())
+
+	// Sanitize the environment
+	user, err := user.LookupId(fmt.Sprintf("%d", j.UID))
+	if err != nil {
+		log.Printf("Lookup failed for user %d", j.UID)
+	}
+
+	fmt.Println("Before ", os.Environ())
+
+	var safeEnv []string
+	for _, entry := range os.Environ() {
+		env := strings.SplitN(entry, "=", 2)
+		switch env[0] {
+		case "LOGNAME", "USER":
+			// Return the setuid username
+			if user != nil {
+				safeEnv = append(safeEnv, fmt.Sprintf("%s=%s", env[0], user.Username))
+			}
+		case "HOME":
+			// Return the setuid user home directory
+			if user != nil {
+				safeEnv = append(safeEnv, fmt.Sprintf("%s=%s", env[0], user.HomeDir))
+			}
+		case "PATH":
+			safeEnv = append(safeEnv, entry)
+		default:
+			//If its LSF related
+			if strings.Contains(env[0], "LSF"){
+				safeEnv = append(safeEnv, fmt.Sprint(entry))
+			}
+		}
+	}
+	cmd.Env = safeEnv
+
+	fmt.Println("After ", cmd.Env)
 
 	return
 }
