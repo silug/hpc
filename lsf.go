@@ -24,7 +24,7 @@ func (j LSFJob) New(job *Job) (error, LSFJob) {
 	var Specs []string
 	if len(job.NativeSpecs) != 0 {
 		//Defines an array of illegal arguments which will not be passed in as native specifications
-		illegalArguments := []string{"-e", "-o", "-eo"}
+		illegalArguments := []string{"-e", "-o", "-eo"," "}
 		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
 	}
 

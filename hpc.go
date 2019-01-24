@@ -54,7 +54,6 @@ func RemoveIllegalParams(input []string, illegalParams []string) []string {
 			skip = false
 			continue
 		}
-
 		if Contains(illegalParams, parameter) {
 			if !(i+1 > len(input)-1) {
 				if strings.HasPrefix(input[i+1], "-") {
@@ -66,8 +65,9 @@ func RemoveIllegalParams(input []string, illegalParams []string) []string {
 			skip = true
 			continue
 		}
-		output = append(output, parameter)
-
+		if parameter != ""{
+		  output = append(output, parameter)
+		}
 	}
 	return output
 }
