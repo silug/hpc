@@ -65,8 +65,8 @@ func RemoveIllegalParams(input []string, illegalParams []string) []string {
 			skip = true
 			continue
 		}
-		if parameter != ""{
-		  output = append(output, parameter)
+		if parameter != "" {
+			output = append(output, parameter)
 		}
 	}
 	return output
@@ -108,19 +108,18 @@ func (j *Job) Run() (err error, out string) {
 		return j.RunJob()
 	}
 
-	_, err = exec.LookPath("bsub")
-        if err == nil {
-                l := new(LSFJob)
-                _, batch := l.New(j)
-                return batch.RunJob()
-        }
-	_, err = exec.LookPath("salloc")
+	_, err = exec.LookPath("sbatch")
 	if err == nil {
 		l := new(SlurmJob)
 		_, batch := l.New(j)
 		return batch.RunJob()
 	}
-
+	_, err = exec.LookPath("bsub")
+	if err == nil {
+		l := new(LSFJob)
+		_, batch := l.New(j)
+		return batch.RunJob()
+	}
 	_, err = exec.LookPath("cqsub")
 	if err == nil {
 		_, err = exec.LookPath("cqstat")
@@ -173,6 +172,7 @@ func (j *Job) tailFile(fileName string, done chan bool) {
 	defer file.Close()
 
 	for {
+
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			j.PrintToParent(scanner.Text())
@@ -215,7 +215,6 @@ func (j *Job) mkTempFile(job *Job, template string) (out string, err error) {
 
 func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	cmd = exec.Command(args[0], args[1:]...)
-
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
@@ -225,8 +224,6 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	if err != nil {
 		log.Printf("Lookup failed for user %d", j.UID)
 	}
-
-	fmt.Println("Before ", os.Environ())
 
 	var safeEnv []string
 	for _, entry := range os.Environ() {
@@ -246,14 +243,12 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 			safeEnv = append(safeEnv, entry)
 		default:
 			//If its LSF related
-			if strings.Contains(env[0], "LSF"){
+			if strings.Contains(env[0], "LSF") {
 				safeEnv = append(safeEnv, fmt.Sprint(entry))
 			}
 		}
 	}
 	cmd.Env = safeEnv
-
-	fmt.Println("After ", cmd.Env)
 
 	return
 }

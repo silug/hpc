@@ -1,19 +1,20 @@
 package hpc
 
 import (
-	"bytes"
 	"fmt"
-	"log"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type SlurmJob struct {
 	*Job
 	batchCommand string
 	args         []string
-	out          string
+	out          []string
 	statusCmd    string
+	exitCodeCmd  string
 }
 
 func (j SlurmJob) New(job *Job) (error, SlurmJob) {
@@ -24,12 +25,13 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	}
 
 	//Get output script paths
-	outputScriptPath, err := job.mkTempFile(job, "slurm_out-*.log")
+	var outputScriptPath string
+	outputScriptPath, err = job.mkTempFile(job, "slurm_out-*.log")
 	if err != nil {
 		return err, SlurmJob{}
 	}
 
-	var execArgs []string
+	execArgs := []string{"-o", outputScriptPath}
 
 	//Handle Native Specs
 	var Specs []string
@@ -43,39 +45,54 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 		execArgs = append(execArgs, Specs...)
 	}
 
+	files := []string{outputScriptPath}
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "sbatch", execArgs, outputScriptPath, "squeue"}
+	return nil, SlurmJob{job, "sbatch", execArgs, files, "squeue", "sacct"}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {
 	cmd := j.Job.setUid(append([]string{j.batchCommand}, j.args...))
-	//Handle stdout and stderr
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	//Run the command, check for errors
-	err = cmd.Run()
+	stdOut, err := cmd.Output()
+	j.PrintToParent(string(stdOut))
+	jobid, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(string(stdOut), "Submitted batch job "), "\n"))
 
-	if errStr != "" {
-		errMsg := fmt.Sprintf("Command '%s' failed.", strings.Join(cmd.Args, " "))
-		j.PrintToParent(errMsg)
-		j.PrintToParent(errStr)
-		log.Printf(errMsg)
-		log.Print(errStr)
+	//Build a command to check job status
+	statusCmd := j.Job.setUid([]string{j.statusCmd, "--job", fmt.Sprintf("%d", jobid)})
+	done := make(chan bool)
+	for _, file := range j.out {
+		go j.Job.tailFile(file, done)
+		defer os.Remove(file)
 	}
 
+	sleepTime := 1 * time.Second
+	status := *statusCmd
+	ret, err := status.Output()
+
+	//Loop until squeue returns non-zero
+	for strings.Contains(string(ret), fmt.Sprint(jobid)) {
+		time.Sleep(sleepTime)
+
+		status = *statusCmd
+		ret, err = status.Output()
+	}
+	close(done)
+
+	//Build a command to get exit status of the Job
+	jobid_int := strconv.Itoa(jobid)
+	cmd = j.Job.setUid([]string{j.exitCodeCmd, "-p", "-j", jobid_int, "--format=state,exitcode"})
+	ret, err = cmd.Output()
 	if err != nil {
-		return err, ""
+		return fmt.Errorf("Cannot get output from sacct", err), ""
 	}
-
-	jobid, err := strconv.Atoi(strings.TrimPrefix(string(stdout.Bytes()), "Submitted batch job "))
-	if err != nil {
-		j.PrintToParent(fmt.Sprintf("Failed to read job ID: %#v", err))
-		return err, ""
+	lines := strings.Split(string(ret), "\n")
+	jobResult := lines[1]
+	jobResult = jobResult[:len(jobResult)-3]                //Trim Suffix
+	jobResult = jobResult[strings.Index(jobResult, "|")+1:] //Trim Prefix
+	exitCode, _ := strconv.Atoi(jobResult)
+	if exitCode != 0 {
+		return fmt.Errorf("Job exited with exit code %d", exitCode), ""
 	}
-
-	fmt.Println("Job ID is ", jobid)
 
 	return
 }
