@@ -25,6 +25,12 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 
 	//Handle Native Specs
 	if len(job.NativeSpecs) != 0 {
+                //Defines an array of illegal arguments which will not be passed in as native specifications
+                illegalArguments := []string{" "}
+                Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
+        }
+
+	if len(job.NativeSpecs) != 0 {
 		execArgs = append(execArgs, job.NativeSpecs...)
 	}
 

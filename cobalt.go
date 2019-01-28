@@ -50,7 +50,7 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	var Specs []string
 	if len(job.NativeSpecs) != 0 {
 		//Defines an array of illegal arguments which will not be passed in as native specifications
-		illegalArguments := []string{"-E", "-o", "--debuglog"}
+		illegalArguments := []string{"-E", "-o", "--debuglog", " "}
 		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
 	}
 
