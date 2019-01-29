@@ -1,7 +1,11 @@
 package hpc
 
 import (
-	"io"
+	"bytes"
+	"fmt"
+	"log"
+	"strconv"
+	"strings"
 )
 
 type SlurmJob struct {
@@ -19,24 +23,30 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 		return err, SlurmJob{}
 	}
 
-	// We need to run sacct to find out if accounting is enabled.  If it is, use
-	// sbatch + sstat/squeue + sacct.  Otherwise, do the simple thing and just use salloc.
-	var execArgs []string
+	//Get output script paths
+	outputScriptPath, err := job.mkTempFile(job, "slurm_out-*.log")
+	if err != nil {
+		return err, SlurmJob{}
+	}
+
+	files := []string{outputScriptPath}
+	execArgs := []string{"-o", outputScriptPath}
 
 	//Handle Native Specs
+	var Specs []string
 	if len(job.NativeSpecs) != 0 {
-                //Defines an array of illegal arguments which will not be passed in as native specifications
-                illegalArguments := []string{" "}
-                Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
-        }
+		//Defines an array of illegal arguments which will not be passed in as native specifications
+		illegalArguments := []string{"-o"}
+		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
+	}
 
 	if len(job.NativeSpecs) != 0 {
-		execArgs = append(execArgs, job.NativeSpecs...)
+		execArgs = append(execArgs, Specs...)
 	}
 
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "sbatch", execArgs}
+	return nil, SlurmJob{job, "sbatch", execArgs, files, "squeue"}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {
@@ -62,9 +72,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 		return err, ""
 	}
 
-	var jobid int
-
-	items, err := fmt.Sscanf(string(stdout.Bytes()), "Submitted batch job %d", &jobid)
+	jobid, err := strconv.Atoi(strings.TrimPrefix(string(stdout.Bytes()), "Submitted batch job "))
 	if err != nil {
 		j.PrintToParent(fmt.Sprintf("Failed to read job ID: %#v", err))
 		return err, ""
@@ -86,7 +94,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 	status := *statusCmd
 	ret := status.Run()
 
-	//Loop until sstat returns an error
+	//Loop until squeue returns an error
 	for ret == nil {
 		time.Sleep(sleepTime)
 
@@ -95,5 +103,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 	}
 	close(done)
 
-	return nil, ""
+	fmt.Println("Job ID is ", jobid)
+
+	return
 }
