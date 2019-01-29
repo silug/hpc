@@ -9,12 +9,13 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/fsnotify/fsnotify"
+	"github.com/radovskyb/watcher"
 )
 
 type Job struct {
@@ -65,8 +66,8 @@ func RemoveIllegalParams(input []string, illegalParams []string) []string {
 			skip = true
 			continue
 		}
-		if parameter != ""{
-		  output = append(output, parameter)
+		if parameter != "" {
+			output = append(output, parameter)
 		}
 	}
 	return output
@@ -108,19 +109,18 @@ func (j *Job) Run() (err error, out string) {
 		return j.RunJob()
 	}
 
-	_, err = exec.LookPath("bsub")
-        if err == nil {
-                l := new(LSFJob)
-                _, batch := l.New(j)
-                return batch.RunJob()
-        }
-	_, err = exec.LookPath("salloc")
+	_, err = exec.LookPath("sbatch")
 	if err == nil {
 		l := new(SlurmJob)
 		_, batch := l.New(j)
 		return batch.RunJob()
 	}
-
+	_, err = exec.LookPath("bsub")
+	if err == nil {
+		l := new(LSFJob)
+		_, batch := l.New(j)
+		return batch.RunJob()
+	}
 	_, err = exec.LookPath("cqsub")
 	if err == nil {
 		_, err = exec.LookPath("cqstat")
@@ -146,25 +146,13 @@ func (j *Job) tailPipe(pipe io.ReadCloser) {
 }
 
 func (j *Job) tailFile(fileName string, done chan bool) {
-	watcher, werr := fsnotify.NewWatcher()
-	if werr != nil {
-		log.Fatal(werr)
-	}
-	defer watcher.Close()
+	w := watcher.New()
+	defer w.Close()
 
-	for {
-		if _, err := os.Stat(fileName); os.IsNotExist(err) {
-			time.Sleep(10 * time.Millisecond)
-			//j.PrintToParent(fmt.Sprintf("Waiting for file %s...", fileName))
-			continue
-		}
-		break
-	}
-
-	werr = watcher.Add(fileName)
-	if werr != nil {
-		log.Fatal(werr)
-	}
+	w.SetMaxEvents(1)
+	w.FilterOps(watcher.Write)
+	r := regexp.MustCompile("^abc$")
+	w.AddFilterHook(watcher.RegexFilterHook(r, false))
 
 	file, ferr := os.Open(fileName)
 	if ferr != nil {
@@ -172,29 +160,33 @@ func (j *Job) tailFile(fileName string, done chan bool) {
 	}
 	defer file.Close()
 
-	for {
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			j.PrintToParent(scanner.Text())
-		}
+	go func() {
+
 		file.Seek(0, os.SEEK_CUR)
 
-		select {
-		case _, ok := <-watcher.Events:
-			if !ok {
-				return
+		for {
+			select {
+			case <-w.Event:
+				scanner := bufio.NewScanner(file)
+				for scanner.Scan() {
+					j.PrintToParent(scanner.Text())
+				}
+			case <-w.Closed:
+				fmt.Println("Closed")
 			}
-
-		case err, ok := <-watcher.Errors:
-			if !ok {
-				return
-			}
-			log.Printf("Error: %#v", err)
-
-		case <-done:
-			return
 		}
+	}()
+
+	// Watch this folder for changes.
+	if err := w.Add(fileName); err != nil {
+		log.Fatalln(err)
 	}
+
+	// Start the watching process - it'll check for changes every 100ms.
+	if err := w.Start(time.Millisecond * 100); err != nil {
+		log.Fatalln(err)
+	}
+
 }
 
 func (j *Job) mkTempFile(job *Job, template string) (out string, err error) {
@@ -215,7 +207,6 @@ func (j *Job) mkTempFile(job *Job, template string) (out string, err error) {
 
 func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	cmd = exec.Command(args[0], args[1:]...)
-
 	//Assign setUID information and env. vars
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.Credential = &syscall.Credential{Uid: uint32(j.UID), Gid: uint32(j.GID)}
@@ -225,8 +216,6 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	if err != nil {
 		log.Printf("Lookup failed for user %d", j.UID)
 	}
-
-	fmt.Println("Before ", os.Environ())
 
 	var safeEnv []string
 	for _, entry := range os.Environ() {
@@ -246,14 +235,12 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 			safeEnv = append(safeEnv, entry)
 		default:
 			//If its LSF related
-			if strings.Contains(env[0], "LSF"){
+			if strings.Contains(env[0], "LSF") {
 				safeEnv = append(safeEnv, fmt.Sprint(entry))
 			}
 		}
 	}
 	cmd.Env = safeEnv
-
-	fmt.Println("After ", cmd.Env)
 
 	return
 }

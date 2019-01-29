@@ -1,13 +1,20 @@
 package hpc
 
 import (
-	"io"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type SlurmJob struct {
 	*Job
 	batchCommand string
 	args         []string
+	out          []string
+	statusCmd    string
+	exitCodeCmd  string
 }
 
 func (j SlurmJob) New(job *Job) (error, SlurmJob) {
@@ -17,50 +24,74 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 		return err, SlurmJob{}
 	}
 
-	var execArgs []string
-
-	//Handle Native Specs
-	if len(job.NativeSpecs) != 0 {
-                //Defines an array of illegal arguments which will not be passed in as native specifications
-                illegalArguments := []string{" "}
-                Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
-        }
-
-	if len(job.NativeSpecs) != 0 {
-		execArgs = append(execArgs, job.NativeSpecs...)
+	//Get output script paths
+	var outputScriptPath string
+	outputScriptPath, err = job.mkTempFile(job, "slurm_out-*.log")
+	if err != nil {
+		return err, SlurmJob{}
 	}
 
+	execArgs := []string{"-o", outputScriptPath}
+
+	//Handle Native Specs
+	var Specs []string
+	if len(job.NativeSpecs) != 0 {
+		//Defines an array of illegal arguments which will not be passed in as native specifications
+		illegalArguments := []string{" "}
+		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
+	}
+
+	if len(job.NativeSpecs) != 0 {
+		execArgs = append(execArgs, Specs...)
+	}
+
+	files := []string{outputScriptPath}
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "salloc", execArgs}
+	return nil, SlurmJob{job, "sbatch", execArgs, files, "squeue", "sacct"}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {
 	cmd := j.Job.setUid(append([]string{j.batchCommand}, j.args...))
+	stdOut, err := cmd.Output()
+	j.PrintToParent(string(stdOut))
+	jobid, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(string(stdOut), "Submitted batch job "), "\n"))
 
-	var stdout, stderr io.ReadCloser
-
-	stdout, err = cmd.StdoutPipe()
-	if err != nil {
-		return
+	//Build a command to check job status
+	statusCmd := j.Job.setUid([]string{j.statusCmd, "--job", fmt.Sprintf("%d", jobid)})
+	done := make(chan bool)
+	for _, file := range j.out {
+		go j.Job.tailFile(file, done)
+		defer os.Remove(file)
 	}
 
-	stderr, err = cmd.StderrPipe()
-	if err != nil {
-		return
+	sleepTime := 1 * time.Second
+	status := *statusCmd
+	ret, err := status.Output()
+
+	//Loop until squeue returns non-zero
+	for strings.Contains(string(ret), fmt.Sprint(jobid)) {
+		time.Sleep(sleepTime)
+
+		status = *statusCmd
+		ret, err = status.Output()
 	}
+	close(done)
 
-	err = cmd.Start()
+	//Build a command to get exit status of the Job
+	jobid_int := strconv.Itoa(jobid)
+	cmd = j.Job.setUid([]string{j.exitCodeCmd, "-p", "-j", jobid_int, "--format=state,exitcode"})
+	ret, err = cmd.Output()
 	if err != nil {
-		return
+		return fmt.Errorf("Cannot get output from sacct", err), ""
 	}
-
-	go j.Job.tailPipe(stdout)
-	go j.Job.tailPipe(stderr)
-
-	err = cmd.Wait()
-	if err != nil {
-		return err, ""
+	lines := strings.Split(string(ret), "\n")
+	jobResult := lines[1]
+	jobResult = jobResult[:len(jobResult)-3]                //Trim Suffix
+	jobResult = jobResult[strings.Index(jobResult, "|")+1:] //Trim Prefix
+	exitCode, _ := strconv.Atoi(jobResult)
+	if exitCode != 0 {
+		return fmt.Errorf("Job exited with exit code %d", exitCode), ""
 	}
 
 	return
