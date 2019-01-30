@@ -121,15 +121,15 @@ func (j *Job) Run() (err error, out string) {
 		_, batch := l.New(j)
 		return batch.RunJob()
 	}
-	_, err = exec.LookPath("cqsub")
+	_, err = exec.LookPath("qsub")
 	if err == nil {
-		_, err = exec.LookPath("cqstat")
+		_, err = exec.LookPath("qstat")
 		if err == nil {
 			l := new(CobaltJob)
 			_, batch := l.New(j)
 			return batch.RunJob()
 		} else {
-			return fmt.Errorf("Cobalt detected but can't monitor (found cqsub but no cqstat)"), ""
+			return fmt.Errorf("Cobalt detected but can't monitor (found qsub but no qstat)"), ""
 		}
 	}
 
