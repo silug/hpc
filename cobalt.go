@@ -61,7 +61,7 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 
 	execArgs = append(execArgs, Script)
 
-	return nil, CobaltJob{job, "cqsub", execArgs, files, "cqstat"}
+	return nil, CobaltJob{job, "qsub", execArgs, files, "qstat"}
 }
 
 func (j *CobaltJob) RunJob() (err error, out string) {
@@ -109,7 +109,7 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 	status := *statusCmd
 	ret := status.Run()
 
-	//Loop until cqstat returns non-zero
+	//Loop until qstat returns non-zero
 	for ret == nil {
 		time.Sleep(sleepTime)
 
