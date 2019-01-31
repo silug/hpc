@@ -8,6 +8,7 @@ type LSFJob struct {
 	*Job
 	batchCommand string
 	args         []string
+	abortCmd     string
 }
 
 func (j LSFJob) New(job *Job) (error, LSFJob) {
@@ -34,7 +35,7 @@ func (j LSFJob) New(job *Job) (error, LSFJob) {
 
 	execArgs = append(execArgs, Script)
 
-	return nil, LSFJob{job, "bsub", execArgs}
+	return nil, LSFJob{job, "bsub", execArgs, "bkill"}
 }
 
 func (j *LSFJob) RunJob() (err error, out string) {
@@ -59,6 +60,11 @@ func (j *LSFJob) RunJob() (err error, out string) {
 
 	go j.Job.tailPipe(stdout)
 	go j.Job.tailPipe(stderr)
+
+	done := make(chan bool)
+	defer close(done)
+	// FIXME: This won't work as-is because we don't have a jobid.
+	go j.Job.waitForAbort([]string{j.abortCmd, fmt.Sprintf("%d", jobid)}, done)
 
 	err = cmd.Wait()
 	if err != nil {

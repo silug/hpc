@@ -26,6 +26,7 @@ type Job struct {
 	OutputScriptPth string
 	BatchExecution  bool
 	PrintToParent   func(string)
+	Abort           chan bool
 }
 
 type BatchJob interface {
@@ -243,4 +244,20 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	cmd.Env = safeEnv
 
 	return
+}
+
+func (j *Job) waitForAbort(args []string, done chan bool) {
+	for {
+		select {
+		case <- j.Abort:
+			j.PrintToParent(fmt.Sprintf("Cancelling job #%s...", args[len(args)-1]))
+
+			abortCmd := j.setUid(args)
+			abortCmd.Run()
+			return
+
+		case <- done:
+			return
+		}
+	}
 }

@@ -16,6 +16,7 @@ type CobaltJob struct {
 	args         []string
 	out          []string
 	statusCmd    string
+	abortCmd     string
 }
 
 func (j CobaltJob) New(job *Job) (error, CobaltJob) {
@@ -61,7 +62,7 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 
 	execArgs = append(execArgs, Script)
 
-	return nil, CobaltJob{job, "qsub", execArgs, files, "qstat"}
+	return nil, CobaltJob{job, "qsub", execArgs, files, "qstat", "qdel"}
 }
 
 func (j *CobaltJob) RunJob() (err error, out string) {
@@ -104,6 +105,7 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 		go j.Job.tailFile(file, done)
 		defer os.Remove(file)
 	}
+	go j.Job.waitForAbort([]string{j.abortCmd, fmt.Sprintf("%d", jobid)}, done)
 
 	sleepTime := 10 * time.Second
 	status := *statusCmd

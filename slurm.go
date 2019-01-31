@@ -15,6 +15,7 @@ type SlurmJob struct {
 	out          []string
 	statusCmd    string
 	exitCodeCmd  string
+	AbortCmd     string
 }
 
 func (j SlurmJob) New(job *Job) (error, SlurmJob) {
@@ -48,7 +49,7 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	files := []string{outputScriptPath}
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "sbatch", execArgs, files, "squeue", "sacct"}
+	return nil, SlurmJob{job, "sbatch", execArgs, files, "squeue", "sacct", "scancel"}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {
@@ -64,6 +65,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 		go j.Job.tailFile(file, done)
 		defer os.Remove(file)
 	}
+	go j.Job.waitForAbort([]string{j.abortCmd, fmt.Sprintf("%d", jobid)}, done)
 
 	sleepTime := 1 * time.Second
 	status := *statusCmd
