@@ -263,13 +263,8 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 			if user != nil {
 				safeEnv = append(safeEnv, fmt.Sprintf("%s=%s", env[0], user.HomeDir))
 			}
-		case "PATH":
-			safeEnv = append(safeEnv, entry)
 		default:
-			//If its LSF related
-			if strings.Contains(env[0], "LSF") {
-				safeEnv = append(safeEnv, fmt.Sprint(entry))
-			}
+			safeEnv = append(safeEnv, entry)
 		}
 	}
 	cmd.Env = safeEnv
