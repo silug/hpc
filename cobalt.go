@@ -120,3 +120,7 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 
 	return nil, ""
 }
+
+func (j *CobaltJob) KillJob() (err error) {
+	return nil
+}

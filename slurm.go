@@ -96,3 +96,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 
 	return
 }
+
+func (j *SlurmJob) KillJob() (err error) {
+	return nil
+}
