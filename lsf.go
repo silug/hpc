@@ -3,6 +3,7 @@ package hpc
 import (
 	"bufio"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"strings"
 )
@@ -18,6 +19,8 @@ func (j LSFJob) New(job *Job) (error, LSFJob) {
 	//Create Script Check for Errors
 	err, Script := BuildScript(job.ScriptContents, "batch_script", job.UID, job.GID, job.OutputScriptPth)
 	if err != nil {
+		log.Warn("Failed to create script")
+		job.PrintToParent("Failed to create script")
 		return err, LSFJob{}
 	}
 
@@ -48,11 +51,19 @@ func (j *LSFJob) RunJob() (err error, out string) {
 
 	stdout, err = cmd.StdoutPipe()
 	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Warn("Error creating stdout pipe")
+		j.PrintToParent("Error creating stdout pipe")
 		return
 	}
 
 	stderr, err = cmd.StderrPipe()
 	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Warn("Error creating stderr pipe")
+		j.PrintToParent("Error creating stderr pipe")
 		return
 	}
 
@@ -61,6 +72,11 @@ func (j *LSFJob) RunJob() (err error, out string) {
 
 	err = cmd.Start()
 	if err != nil {
+		log.WithFields(log.Fields{
+			"args":  cmd.Args,
+			"error": err,
+		}).Warn("Failed to start command")
+		j.PrintToParent("Failed to start command")
 		return
 	}
 
@@ -70,8 +86,14 @@ func (j *LSFJob) RunJob() (err error, out string) {
 
 	err = cmd.Wait()
 	if err != nil {
+		log.WithFields(log.Fields{
+			"args":  cmd.Args,
+			"error": err,
+		}).Warn("Command failed")
 		return err, ""
 	}
+
+	log.Debug("Job completed.")
 
 	return
 }
