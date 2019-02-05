@@ -117,22 +117,22 @@ func (j *Job) Run() (err error, out string) {
 	_, err = exec.LookPath("sbatch")
 	if err == nil {
 		l := new(SlurmJob)
-		_, CurrentSLURM := l.New(j)
+		_, CurrentSLURM = l.New(j)
 		return CurrentSLURM.RunJob()
 	}
 	_, err = exec.LookPath("bsub")
 	if err == nil {
 		l := new(LSFJob)
-		_, batch := l.New(j)
-		return batch.RunJob()
+		_, CurrentLSF = l.New(j)
+		return CurrentLSF.RunJob()
 	}
 	_, err = exec.LookPath("qsub")
 	if err == nil {
 		_, err = exec.LookPath("qstat")
 		if err == nil {
 			l := new(CobaltJob)
-			_, batch := l.New(j)
-			return batch.RunJob()
+			_, CurrentCOBALT = l.New(j)
+			return CurrentCOBALT.RunJob()
 		} else {
 			return fmt.Errorf("Cobalt detected but can't monitor (found qsub but no qstat)"), ""
 		}

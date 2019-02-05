@@ -15,6 +15,7 @@ type SlurmJob struct {
 	out          []string
 	statusCmd    string
 	exitCodeCmd  string
+	jobID        string
 }
 
 func (j SlurmJob) New(job *Job) (error, SlurmJob) {
@@ -48,7 +49,7 @@ func (j SlurmJob) New(job *Job) (error, SlurmJob) {
 	files := []string{outputScriptPath}
 	execArgs = append(execArgs, Script)
 
-	return nil, SlurmJob{job, "sbatch", execArgs, files, "squeue", "sacct"}
+	return nil, SlurmJob{job, "sbatch", execArgs, files, "squeue", "sacct", ""}
 }
 
 func (j *SlurmJob) RunJob() (err error, out string) {
@@ -56,6 +57,7 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 	stdOut, err := cmd.Output()
 	j.PrintToParent(string(stdOut))
 	jobid, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(string(stdOut), "Submitted batch job "), "\n"))
+	j.jobID = strconv.Itoa(jobid)
 
 	//Build a command to check job status
 	statusCmd := j.Job.setUid([]string{j.statusCmd, "--job", fmt.Sprintf("%d", jobid)})
@@ -98,5 +100,13 @@ func (j *SlurmJob) RunJob() (err error, out string) {
 }
 
 func (j *SlurmJob) KillJob() (err error) {
+	//Build command to kill job with ID
+	cmd := j.Job.setUid([]string{"scancel", j.jobID})
+	fmt.Println(cmd)
+	ret, err := cmd.Output()
+	fmt.Println(string(ret))
+	if err != nil {
+		return fmt.Errorf("Cannot kill job.", err)
+	}
 	return nil
 }

@@ -56,6 +56,9 @@ func (j *LSFJob) RunJob() (err error, out string) {
 		return
 	}
 
+	defer stdout.Close()
+	defer stderr.Close()
+
 	err = cmd.Start()
 	if err != nil {
 		return
@@ -88,6 +91,12 @@ func (j *LSFJob) getJobID(pipe io.ReadCloser) {
 }
 
 func (j *LSFJob) KillJob() (err error) {
-	fmt.Println("Killing LSF Job with ID", j.jobID)
+	//Build command to kill job with ID
+	cmd := j.Job.setUid([]string{"bkill", j.jobID})
+	ret, err := cmd.Output()
+	fmt.Println(string(ret))
+	if err != nil {
+		return fmt.Errorf("Cannot kill job.", err)
+	}
 	return nil
 }
