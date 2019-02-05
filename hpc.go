@@ -3,9 +3,9 @@ package hpc
 import (
 	"bufio"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/exec"
 	"os/user"
@@ -106,23 +106,27 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err 
 //Initial func run. Gets batch system and calls the corresponding run
 func (j *Job) Run() (err error, out string) {
 	if j.BatchExecution == false {
+		log.Debug("Detected nobatch")
 		return j.RunJob()
 	}
 
 	_, err = exec.LookPath("sbatch")
 	if err == nil {
+		log.Debug("Detected SLURM")
 		l := new(SlurmJob)
 		_, batch := l.New(j)
 		return batch.RunJob()
 	}
 	_, err = exec.LookPath("bsub")
 	if err == nil {
+		log.Debug("Detected LSF")
 		l := new(LSFJob)
 		_, batch := l.New(j)
 		return batch.RunJob()
 	}
 	_, err = exec.LookPath("qsub")
 	if err == nil {
+		log.Debug("Detected Cobalt")
 		_, err = exec.LookPath("qstat")
 		if err == nil {
 			l := new(CobaltJob)
@@ -198,7 +202,12 @@ func (j *Job) mkTempFile(job *Job, template string) (out string, err error) {
 	fileName := file.Name()
 
 	if err = os.Chown(fileName, job.UID, job.GID); err != nil {
-		log.Printf("os.Chown(%s, %d, %d) failed: %#v", fileName, job.UID, job.GID, err)
+		log.WithFields(log.Fields{
+			"filename": fileName,
+			"uid":      job.UID,
+			"gid":      job.GID,
+			"error":    err,
+		}).Error("os.Chown() failed")
 		return "", err
 	}
 
@@ -214,7 +223,9 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 	// Sanitize the environment
 	user, err := user.LookupId(fmt.Sprintf("%d", j.UID))
 	if err != nil {
-		log.Printf("Lookup failed for user %d", j.UID)
+		log.WithFields(log.Fields{
+			"uid": j.UID,
+		}).Warn("User lookup failed")
 	}
 
 	var safeEnv []string
@@ -236,6 +247,13 @@ func (j *Job) setUid(args []string) (cmd *exec.Cmd) {
 		}
 	}
 	cmd.Env = safeEnv
+
+	log.WithFields(log.Fields{
+		"args": args,
+		"uid":  j.UID,
+		"gid":  j.GID,
+		"env":  safeEnv,
+	}).Debug("Built SetUID command")
 
 	return
 }

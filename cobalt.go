@@ -3,7 +3,7 @@ package hpc
 import (
 	"bytes"
 	"fmt"
-	"log"
+	log "github.com/sirupsen/logrus"
 	"os"
 	"strconv"
 	"strings"
@@ -22,6 +22,8 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 	//Create Script Check for Errors
 	err, Script := BuildScript(job.ScriptContents, "batch_script", job.UID, job.GID, job.OutputScriptPth)
 	if err != nil {
+		log.Warn("Failed to create script")
+		job.PrintToParent("Failed to create script")
 		return err, CobaltJob{}
 	}
 
@@ -30,16 +32,22 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 
 	outputScriptPath, err = job.mkTempFile(job, "cobalt_out-*.log")
 	if err != nil {
+		log.Warn("Failed to create output")
+		job.PrintToParent("Failed to create output")
 		return err, CobaltJob{}
 	}
 
 	errorScriptPath, err = job.mkTempFile(job, "cobalt_err-*.log")
 	if err != nil {
+		log.Warn("Failed to create error output")
+		job.PrintToParent("Failed to create error output")
 		return err, CobaltJob{}
 	}
 
 	logScriptPath, err = job.mkTempFile(job, "cobalt_debug-*.log")
 	if err != nil {
+		log.Warn("Failed to create debug output")
+		job.PrintToParent("Failed to create debug output")
 		return err, CobaltJob{}
 	}
 
@@ -76,24 +84,30 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 
 	errStr := string(stderr.Bytes())
 	if errStr != "" {
-		errMsg := fmt.Sprintf("Command '%s' failed.", strings.Join(cmd.Args, " "))
-		j.PrintToParent(errMsg)
+		log.Warn(errStr)
 		j.PrintToParent(errStr)
-		log.Printf(errMsg)
-		log.Print(errStr)
 	}
 
 	if err != nil {
+		log.WithFields(log.Fields{
+			"args": cmd.Args,
+		}).Warn("Command failed.")
+		j.PrintToParent(fmt.Sprintf("Command '%s' failed.", strings.Join(cmd.Args, " ")))
 		return err, ""
 	}
 
 	jobid, err := strconv.Atoi(strings.TrimSpace(string(stdout.Bytes())))
 	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+		}).Warn("Failed to read job ID")
 		j.PrintToParent(fmt.Sprintf("Failed to read job ID: %#v", err))
 		return err, ""
 	}
 
-	log.Printf("Waiting for job %d to complete.", jobid)
+	log.WithFields(log.Fields{
+		"jobid": jobid,
+	}).Info("Waiting for job to complete.")
 	j.PrintToParent(fmt.Sprintf("Waiting for job %d to complete.", jobid))
 
 	//Build a command to check job status
@@ -101,6 +115,9 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 
 	done := make(chan bool)
 	for _, file := range j.out {
+		log.WithFields(log.Fields{
+			"file": file,
+		}).Debug("Watching file")
 		go j.Job.tailFile(file, done)
 		defer os.Remove(file)
 	}
@@ -114,9 +131,16 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 		time.Sleep(sleepTime)
 
 		status = *statusCmd
+		log.WithFields(log.Fields{
+			"args": status.Args,
+		}).Debug("Checking job")
 		ret = status.Run()
 	}
 	close(done)
+
+	log.WithFields(log.Fields{
+		"jobid": jobid,
+	}).Debug("Job completed.")
 
 	return nil, ""
 }
