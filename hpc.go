@@ -31,7 +31,12 @@ type Job struct {
 type BatchJob interface {
 	New() (error, interface{})
 	RunJob() (error, string)
+	KillJob() error
 }
+
+var CurrentLSF LSFJob
+var CurrentSLURM SlurmJob
+var CurrentCOBALT CobaltJob
 
 //This function exists to help the native spec system
 func Contains(illegalArgs []string, elementToTest string) bool {
@@ -114,15 +119,15 @@ func (j *Job) Run() (err error, out string) {
 	if err == nil {
 		log.Debug("Detected SLURM")
 		l := new(SlurmJob)
-		_, batch := l.New(j)
-		return batch.RunJob()
+		_, CurrentSLURM = l.New(j)
+		return CurrentSLURM.RunJob()
 	}
 	_, err = exec.LookPath("bsub")
 	if err == nil {
 		log.Debug("Detected LSF")
 		l := new(LSFJob)
-		_, batch := l.New(j)
-		return batch.RunJob()
+		_, CurrentLSF = l.New(j)
+		return CurrentLSF.RunJob()
 	}
 	_, err = exec.LookPath("qsub")
 	if err == nil {
@@ -130,14 +135,41 @@ func (j *Job) Run() (err error, out string) {
 		_, err = exec.LookPath("qstat")
 		if err == nil {
 			l := new(CobaltJob)
-			_, batch := l.New(j)
-			return batch.RunJob()
+			_, CurrentCOBALT = l.New(j)
+			return CurrentCOBALT.RunJob()
 		} else {
 			return fmt.Errorf("Cobalt detected but can't monitor (found qsub but no qstat)"), ""
 		}
 	}
 
 	return fmt.Errorf("No batch system found"), ""
+}
+
+func (j *Job) Kill() {
+	if j.BatchExecution == false {
+		return
+	}
+
+	_, err := exec.LookPath("sbatch")
+	if err == nil {
+		CurrentSLURM.KillJob()
+		return
+	}
+	_, err = exec.LookPath("bsub")
+	if err == nil {
+		CurrentLSF.KillJob()
+		return
+	}
+	_, err = exec.LookPath("qsub")
+	if err == nil {
+		_, err = exec.LookPath("qstat")
+		if err == nil {
+			CurrentCOBALT.KillJob()
+			return
+		} else {
+			fmt.Println("Cobalt error")
+		}
+	}
 }
 
 func (j *Job) tailPipe(pipe io.ReadCloser) {

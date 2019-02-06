@@ -1,14 +1,18 @@
 package hpc
 
 import (
+	"bufio"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"io"
+	"strings"
 )
 
 type LSFJob struct {
 	*Job
 	batchCommand string
 	args         []string
+	jobID        string
 }
 
 func (j LSFJob) New(job *Job) (error, LSFJob) {
@@ -27,7 +31,7 @@ func (j LSFJob) New(job *Job) (error, LSFJob) {
 	var Specs []string
 	if len(job.NativeSpecs) != 0 {
 		//Defines an array of illegal arguments which will not be passed in as native specifications
-		illegalArguments := []string{"-e", "-o", "-eo"," "}
+		illegalArguments := []string{"-e", "-o", "-eo", " "}
 		Specs = RemoveIllegalParams(job.NativeSpecs, illegalArguments)
 	}
 
@@ -37,7 +41,7 @@ func (j LSFJob) New(job *Job) (error, LSFJob) {
 
 	execArgs = append(execArgs, Script)
 
-	return nil, LSFJob{job, "bsub", execArgs}
+	return nil, LSFJob{job, "bsub", execArgs, ""}
 }
 
 func (j *LSFJob) RunJob() (err error, out string) {
@@ -63,6 +67,9 @@ func (j *LSFJob) RunJob() (err error, out string) {
 		return
 	}
 
+	defer stdout.Close()
+	defer stderr.Close()
+
 	err = cmd.Start()
 	if err != nil {
 		log.WithFields(log.Fields{
@@ -73,6 +80,7 @@ func (j *LSFJob) RunJob() (err error, out string) {
 		return
 	}
 
+	go j.getJobID(stdout)
 	go j.Job.tailPipe(stdout)
 	go j.Job.tailPipe(stderr)
 
@@ -88,4 +96,29 @@ func (j *LSFJob) RunJob() (err error, out string) {
 	log.Debug("Job completed.")
 
 	return
+}
+
+func (j *LSFJob) getJobID(pipe io.ReadCloser) {
+	scanner := bufio.NewScanner(pipe)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "Job <") {
+			j.PrintToParent(line)
+			line = line[:strings.Index(line, ">")] //Trim suffix
+			line = line[strings.Index(line, "Job <")+5:]
+			j.jobID = line
+			return
+		}
+	}
+}
+
+func (j *LSFJob) KillJob() (err error) {
+	//Build command to kill job with ID
+	cmd := j.Job.setUid([]string{"bkill", j.jobID})
+	ret, err := cmd.Output()
+	fmt.Println(string(ret))
+	if err != nil {
+		return fmt.Errorf("Cannot kill job.", err)
+	}
+	return nil
 }
