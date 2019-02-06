@@ -16,6 +16,7 @@ type CobaltJob struct {
 	args         []string
 	out          []string
 	statusCmd    string
+	jobID        string
 }
 
 func (j CobaltJob) New(job *Job) (error, CobaltJob) {
@@ -61,7 +62,7 @@ func (j CobaltJob) New(job *Job) (error, CobaltJob) {
 
 	execArgs = append(execArgs, Script)
 
-	return nil, CobaltJob{job, "qsub", execArgs, files, "qstat"}
+	return nil, CobaltJob{job, "qsub", execArgs, files, "qstat", ""}
 }
 
 func (j *CobaltJob) RunJob() (err error, out string) {
@@ -92,6 +93,7 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 		j.PrintToParent(fmt.Sprintf("Failed to read job ID: %#v", err))
 		return err, ""
 	}
+	j.jobID = strconv.Itoa(jobid)
 
 	log.Printf("Waiting for job %d to complete.", jobid)
 	j.PrintToParent(fmt.Sprintf("Waiting for job %d to complete.", jobid))
@@ -119,4 +121,16 @@ func (j *CobaltJob) RunJob() (err error, out string) {
 	close(done)
 
 	return nil, ""
+}
+
+func (j *CobaltJob) KillJob() (err error) {
+	//Build command to kill job with ID
+	cmd := j.Job.setUid([]string{"qdel", j.jobID})
+	fmt.Println(cmd)
+	ret, err := cmd.Output()
+	fmt.Println(string(ret))
+	if err != nil {
+		return fmt.Errorf("Cannot kill job.", err)
+	}
+	return nil
 }
