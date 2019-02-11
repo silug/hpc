@@ -91,9 +91,21 @@ func BuildScript(cmd, filenameSuffix string, myUid, myGid int, pth string) (err 
 	if scriptErr != nil {
 		return fmt.Errorf("Unable to create Script file: %v", scriptErr), ""
 	}
-	fmt.Fprintf(batchScript, "#!/bin/bash\n")
-	fmt.Fprintf(batchScript, "set -eo pipefail\n")
-	fmt.Fprintf(batchScript, "set +o noclobber\n")
+	script := `#!/bin/bash
+
+[ -f /etc/profile ] && { . /etc/profile || :; }
+for f in ~/.bash_profile ~/.bash_login ~/.profile ; do
+    if [ -f "$f" ] ; then
+        . "$f" || :
+        break
+    fi
+done
+unset f
+
+set -eo pipefail
+set +o noclobber
+`
+	fmt.Fprintf(batchScript, script)
 	fmt.Fprintf(batchScript, cmd)
 
 	chmodErr := os.Chmod(batchScriptFull, 0750)
